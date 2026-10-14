@@ -10,65 +10,69 @@
   "report": {
     "driver": {
       "shipped": true,
-      "samples": 619,
-      "positive_rate": 0.326,
-      "holdout_auc": 0.731,
+      "samples": 554,
+      "split": "random",
+      "positive_rate": 0.265,
+      "holdout_auc": 0.759,
       "weights": {
-        "has_car": -0.004,
-        "corridor_density": 0.751,
-        "recent_rides": 0.463,
-        "social_degree": -0.411,
-        "past_response": 2.515,
-        "bias": -0.004
+        "has_car": -0.0,
+        "corridor_density": -0.039,
+        "recent_rides": 0.562,
+        "social_degree": -0.415,
+        "past_response": 1.995,
+        "bias": -0.0
       },
-      "intercept": -2.187
+      "intercept": -1.758
     },
     "rider": {
       "shipped": true,
-      "samples": 1849,
-      "positive_rate": 0.285,
-      "holdout_auc": 0.665,
+      "samples": 1914,
+      "split": "random",
+      "positive_rate": 0.294,
+      "holdout_auc": 0.654,
       "weights": {
         "has_car": 0.0,
-        "corridor_density": 0.712,
-        "recent_rides": 0.649,
-        "social_degree": 0.44,
-        "past_response": 1.424,
+        "corridor_density": 0.498,
+        "recent_rides": 0.84,
+        "social_degree": 0.459,
+        "past_response": 1.003,
         "bias": -0.004
       },
-      "intercept": -2.127
+      "intercept": -1.948
     },
     "connector": {
       "shipped": false,
       "samples": 52,
-      "positive_rate": 0.25,
-      "holdout_auc": 0.35,
+      "split": "random",
+      "positive_rate": 0.231,
+      "holdout_auc": 0.795,
       "weights": {
-        "has_car": 0.121,
-        "corridor_density": 0.676,
+        "has_car": 0.238,
+        "corridor_density": 0.796,
         "recent_rides": 0.0,
-        "social_degree": 0.018,
-        "past_response": 0.74,
-        "bias": -0.0
+        "social_degree": -0.252,
+        "past_response": 0.745,
+        "bias": 0.0
       },
-      "intercept": -1.486
+      "intercept": -1.391
     },
     "referrer": {
       "shipped": true,
-      "samples": 458,
-      "positive_rate": 0.186,
-      "holdout_auc": 0.9,
+      "samples": 306,
+      "split": "random",
+      "positive_rate": 0.121,
+      "holdout_auc": 0.671,
       "weights": {
-        "has_car": -0.019,
-        "corridor_density": 0.068,
-        "recent_rides": 3.486,
-        "social_degree": 1.922,
-        "past_response": 0.814,
-        "bias": 0.001
+        "has_car": -0.269,
+        "corridor_density": 0.299,
+        "recent_rides": 0.733,
+        "social_degree": 0.261,
+        "past_response": 0.445,
+        "bias": 0.0
       },
-      "intercept": -4.499
+      "intercept": -2.375
     }
   },
-  "trained_at": "2026-10-14T05:43:06.287516+00:00",
+  "trained_at": "2026-10-14T18:22:11.875096+00:00",
   "data": "synthetic (labelled)"
 }

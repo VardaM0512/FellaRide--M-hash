@@ -273,7 +273,11 @@ npm run dev                       # member app http://localhost:5173 · dashboar
 ```bash
 cd backend
 python -m ml.train_scorer --runs 6 --days 30          # writes models/scorer.pkl and models/scorer.json
+python -m ml.train_scorer --source real               # retrain on answered nudges in FELLARIDE_DATABASE_URL
 ```
+Real-data training pools answered nudges from every real community and holds out the newest 25%. Real
+communities get the labels it needs: unanswered nudges expire as a no when the cooldown ends, 15% of each day's
+nudges go to random members (strategy `explore`), and the day clock follows the calendar.
 
 ### Regenerate the architecture diagram
 ```bash

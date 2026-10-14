@@ -6,6 +6,8 @@ Smart strategy priority = p_role x corridor value x (1 - fatigue) x relevance bo
   - likely riders:  "Varun drives your way at 08:04. Share your morning commute?"
                     or, with no driver yet, "N people from your community commute this way."
 Random strategy = baseline for comparison: generic message to random eligible members.
+Real communities send `explore_share` of the smart budget to random eligible members (strategy "explore").
+Unanswered nudges expire as a no when the cooldown ends (expire_unanswered, run at day close).
 Rules: at most one action per member every `nudge_cooldown_days`; daily budget caps the total.
 """
 import random
@@ -79,7 +81,15 @@ def plan(db: Session, ctx: Context, tenant: Tenant, budget: int | None = None, s
                     msg = f"{max(c.registered, 2)} people from your community commute this way. Join their ride group?"
                     chosen.append((pri, m, "rider", msg, None))
         chosen.sort(key=lambda t: t[0], reverse=True)
-        chosen = chosen[:budget]
+        # Real communities keep a random slice of the budget so the scorer learns about everyone, not only
+        # the members it already rates highly. Synthetic runs stay pure smart (the Proof comparison).
+        explore = 0 if tenant.is_synthetic else min(len(chosen), round(budget * s.explore_share))
+        top, rest = chosen[:budget - explore], chosen[budget - explore:]
+        picks = rng.sample(rest, min(explore, len(rest)))
+        out = [deliver(db, ctx, tenant, m, kind, msg, suggested, pri, strategy) for pri, m, kind, msg, suggested in top]
+        out += [deliver(db, ctx, tenant, m, kind, msg, suggested, pri, "explore") for pri, m, kind, msg, suggested in picks]
+        db.flush()
+        return out
 
     out = [deliver(db, ctx, tenant, m, kind, msg, suggested, pri, strategy) for pri, m, kind, msg, suggested in chosen]
     db.flush()
@@ -107,6 +117,16 @@ def deliver(db: Session, ctx: Context, tenant: Tenant, m: Member, kind: str, msg
     if user_id:
         db.add(Alert(user_id=user_id, kind=f"nudge_{kind}", title=title, body=msg))
     return iv
+
+
+def expire_unanswered(db: Session, tenant: Tenant, day: int) -> int:
+    """Nudges nobody acted on within the answer window (the cooldown) count as a no, so the model learns from
+    silence too. Without this, real members could only ever produce positive examples."""
+    stale = list(db.scalars(select(Intervention).where(Intervention.tenant_id == tenant.id, Intervention.status == "sent",
+                                                        Intervention.day <= day - get_settings().nudge_cooldown_days)))
+    for iv in stale:
+        respond(db, tenant, iv, False)
+    return len(stale)
 
 
 def eligible(m: Member, day: int) -> bool:
