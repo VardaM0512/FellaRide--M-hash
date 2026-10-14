@@ -1,0 +1,62 @@
+/* FellaRide design tokens, from the frontend brief ("commute threads").
+   Every text colour below was checked against its background at WCAG AA (4.5:1). */
+:root {
+  --mist: #EEF2F1;      /* page background */
+  --paper: #FFFFFF;     /* sheets, map surface */
+  --ink: #1C2830;       /* text, roads, icons */
+  --fog: #5B6A73;       /* captions, units, inactive threads */
+  --marigold: #E09F1F;  /* drivers, seats offered, primary action (fill only: Ink text on top) */
+  --peacock: #0F7A80;   /* riders, matches, successful rides */
+  --jamun: #6A2C5E;     /* referrals and invites */
+  --chilli: #C2352B;    /* errors and cancelled rides only */
+
+  --line: #D3DCDA;      /* hairlines */
+  --mist-2: #E2E8E7;    /* skeletons, tracks */
+  --peacock-wash: #DCEFEF;
+  --marigold-wash: #FBEFD6;
+  --jamun-wash: #F0E3EC;
+  --chilli-wash: #F8E2DF;
+  --on-accent: #FFFFFF; /* text on peacock / jamun fills */
+  --shadow-sheet: 0 -8px 32px rgba(28, 40, 48, 0.18);
+
+  --font-display: 'Anek Latin', 'Atkinson Hyperlegible', system-ui, sans-serif;
+  --font-body: 'Atkinson Hyperlegible', system-ui, sans-serif;
+  --fs-body: 15px;
+  --fs-small: 13px;
+  --fs-h3: 20px;
+  --fs-h2: 26px;
+  --fs-h1: 34px;
+  --fs-hero: 64px;
+
+  --r-sheet: 14px;
+  --r-button: 8px;
+  --r-chip: 999px;
+  --tap: 44px;
+  color-scheme: light;
+}
+
+@media (min-width: 900px) {
+  :root { --fs-body: 16px; }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --mist: #12191E;
+    --paper: #1A242B;
+    --ink: #E6ECEB;
+    --fog: #9AA8B0;
+    --marigold: #F2B84B;
+    --peacock: #3DB5B0;
+    --jamun: #C88BB8;
+    --chilli: #F0776B;
+    --line: #2C3A42;
+    --mist-2: #24313A;
+    --peacock-wash: #173A3B;
+    --marigold-wash: #3A3020;
+    --jamun-wash: #33222F;
+    --chilli-wash: #3B2220;
+    --on-accent: #12191E;
+    --shadow-sheet: 0 -8px 32px rgba(0, 0, 0, 0.5);
+    color-scheme: dark;
+  }
+}
