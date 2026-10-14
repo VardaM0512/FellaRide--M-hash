@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { DemoPicker, SignIn, Signup, StartCommunity, Welcome } from './auth/AuthScreens';
 import Dashboard from './dashboard/Dashboard';
+import Expansion from './dashboard/Expansion';
 import Proof from './dashboard/Proof';
 import { useSession } from './lib/session';
 import AlertsScreen from './member/AlertsScreen';
@@ -68,6 +69,7 @@ export default function App() {
       </Route>
       <Route path="dashboard" element={<RequireAdmin><Dashboard /></RequireAdmin>} />
       <Route path="dashboard/proof" element={<RequireAdmin><Proof /></RequireAdmin>} />
+      <Route path="dashboard/expansion" element={<RequireAdmin><Expansion /></RequireAdmin>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

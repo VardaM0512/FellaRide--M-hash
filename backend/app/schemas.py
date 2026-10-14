@@ -226,3 +226,18 @@ class CommentIn(BaseModel):
 
 class ReactionIn(BaseModel):
     emoji: Literal["thumbs", "heart", "party", "thanks"]
+
+
+# ---------- network expansion ----------
+class ExpansionRunIn(BaseModel):
+    max_actions: int = Field(3, ge=1, le=8)
+
+
+class AutopilotIn(BaseModel):
+    days: int = Field(5, ge=1, le=30)
+    seed: int = Field(31, ge=0, le=10_000)
+
+
+class CorridorIn(BaseModel):
+    community_id: int = Field(ge=1)
+    corridor: str = Field(min_length=3, max_length=40, description="A shared corridor's id from the expansion report")

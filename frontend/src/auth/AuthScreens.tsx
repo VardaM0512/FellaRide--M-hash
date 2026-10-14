@@ -1,8 +1,10 @@
-import { motion } from 'framer-motion';
 import { useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { createCommunity, demoLogin, login, useDemoAccounts, usePublicCommunities } from '../api/hooks';
-import { signup, type Gender } from '../api/trips';
+import { signup, type Gender, type Place } from '../api/trips';
+import MapView from '../components/MapView';
+import PlaceField from '../components/PlaceField';
+import { nameOf } from '../lib/places';
 import { Avatar, ErrorNote, Icon, Logo, Skeleton } from '../components/ui';
 import { STATE_LABEL } from '../lib/format';
 import { GENDER_OPTIONS } from '../lib/tripFormat';
@@ -23,33 +25,74 @@ function Shell({ title, back = '/welcome', children }: { title?: string; back?: 
 }
 
 
-// Commute threads drawing themselves across the hero, each with a car travelling along it.
-const THREADS = [
-  { d: 'M-20 190 C 80 190 140 90 250 80 S 400 40 460 24', color: '#F5A524', w: 4, delay: 0 },
-  { d: 'M-20 150 C 90 160 150 120 250 118 S 380 92 460 70', color: '#34D399', w: 4, delay: 0.25 },
-  { d: 'M-20 90 C 70 110 170 40 260 50 S 400 120 460 110', color: '#6B7280', w: 2.5, delay: 0.5 },
-  { d: 'M30 230 C 120 180 220 190 300 150 S 420 130 460 140', color: '#A78BFA', w: 2.5, delay: 0.7 },
-]
+/** A titled, numbered group of fields, so long forms read as a few short steps. */
+function Section({ n, title, hint, children }: { n: number; title: string; hint?: string; children: ReactNode }) {
+  const id = `sec-${n}-${title.replace(/\W+/g, '-').toLowerCase()}`;
+  return (
+    <section className="form-section" aria-labelledby={id}>
+      <header className="form-section-head">
+        <span className="step-dot" aria-hidden="true">{n}</span>
+        <span><h2 id={id}>{title}</h2>{hint && <p className="small muted">{hint}</p>}</span>
+      </header>
+      {children}
+    </section>
+  );
+}
+
+/** Password input with a show/hide button (helps on phones and for people who mistype). */
+function PasswordField({ label, value, onChange, autoComplete, hint }: {
+  label: string; value: string; onChange: (v: string) => void; autoComplete: string; hint?: string;
+}) {
+  const [show, setShow] = useState(false);
+  return (
+    <label className="field">{label}
+      <span className="pw-wrap">
+        <input type={show ? 'text' : 'password'} value={value} onChange={(e) => onChange(e.target.value)} autoComplete={autoComplete}
+          required minLength={autoComplete === 'new-password' ? 8 : undefined} maxLength={72} />
+        <button type="button" className="pw-toggle" onClick={() => setShow((v) => !v)} aria-pressed={show}
+          aria-label={show ? 'Hide password' : 'Show password'}>{show ? 'Hide' : 'Show'}</button>
+      </span>
+      {hint && <span className="hint">{hint}</span>}
+    </label>
+  );
+}
+
+// Brand moment: scattered members appear, their separate commutes converge into one shared
+// route, and the ride arrives. It plays once; afterwards only a faint light travels the shared route.
+// Pure SVG + CSS (see "hero art" in app.css), so the app's Reduce motion setting shows the final frame.
+const MERGE = 'M250 104 C 292 98 330 82 372 64';
+const MEMBERS = [
+  { x: 34, y: 46, d: 'M34 46 C 110 46 170 100 250 104' },
+  { x: 140, y: 22, d: 'M140 22 C 180 34 205 96 250 104' },
+  { x: 22, y: 118, d: 'M22 118 C 100 120 170 106 250 104' },
+  { x: 152, y: 156, d: 'M152 156 C 192 146 218 110 250 104' },
+  { x: 64, y: 182, d: 'M64 182 C 132 180 182 114 250 104' },
+];
 
 function HeroArt() {
   return (
-    <svg className="hero-art" viewBox="0 0 440 320" preserveAspectRatio="xMidYMin slice" aria-hidden="true">
+    <svg className="hero-art" viewBox="0 0 440 320" preserveAspectRatio="xMidYMin meet" aria-hidden="true">
       <defs>
         <linearGradient id="hero-fade" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0.3" stopColor="#0B0B0C" stopOpacity="0" />
-          <stop offset="0.62" stopColor="#0B0B0C" stopOpacity="1" />
+          <stop className="fade-stop" offset="0.52" stopColor="#0D0E10" stopOpacity="0" />
+          <stop className="fade-stop" offset="0.82" stopColor="#0D0E10" stopOpacity="1" />
         </linearGradient>
+        <radialGradient id="hero-glow" cx="0.5" cy="0.5" r="0.5">
+          <stop className="glow-stop" offset="0" stopColor="#D4F53C" stopOpacity="0.35" />
+          <stop className="glow-stop" offset="1" stopColor="#D4F53C" stopOpacity="0" />
+        </radialGradient>
       </defs>
-      {THREADS.map((t, i) => (
-        <g key={i}>
-          <motion.path d={t.d} stroke={t.color} strokeWidth={t.w} fill="none" strokeLinecap="round"
-            initial={{ pathLength: 0, opacity: 0 }} animate={{ pathLength: 1, opacity: 1 }}
-            transition={{ duration: 1.6, delay: t.delay, ease: [0.22, 1, 0.36, 1] }} />
-          <circle r={t.w + 2.5} fill="#fff">
-            <animateMotion dur={`${6 + i * 1.5}s`} begin={`${1.2 + t.delay}s`} repeatCount="indefinite" path={t.d} />
-          </circle>
+      {MEMBERS.map((m, i) => (
+        <g key={i} style={{ ['--i' as string]: i }}>
+          <path className="ha-route" d={m.d} pathLength={1} />
+          <circle className="ha-member" cx={m.x} cy={m.y} r={3} />
         </g>
       ))}
+      <path className="ha-shared" d={MERGE} pathLength={1} />
+      <path className="ha-light" d={MERGE} pathLength={1} />
+      <circle className="ha-glow" cx={372} cy={64} r={34} fill="url(#hero-glow)" />
+      <circle className="ha-dest-ring" cx={372} cy={64} r={7} />
+      <circle className="ha-dest" cx={372} cy={64} r={3} />
       <rect width="440" height="320" fill="url(#hero-fade)" />
     </svg>
   );
@@ -61,17 +104,19 @@ export function Welcome() {
       <div className="auth-top brand"><Logo /><strong style={{ flex: 1 }}>FellaRide</strong><ThemeToggle /></div>
       <section className="auth-hero">
         <HeroArt />
-        <h1>Share the ride.<br />Split the road.</h1>
+        <p className="hero-eyebrow">Many commutes · One community</p>
+        <h1>Ride with Confidence.</h1>
+        <p className="hero-tagline">Connect with familiar faces</p>
         <p>Driving somewhere? Post your ride and people along your route can ask for a seat. Need a ride? See who’s going your way, with their rating, and ask.</p>
       </section>
       <div className="auth-actions">
         <div className="welcome-intro">
-          <h2>Get moving together</h2>
+          <h2>Because familiar feels better</h2>
           <p className="muted">Join your college, company or neighbourhood, find people on your route, and share the ride.</p>
         </div>
         <Link to="/signup" className="btn btn-primary btn-block">Create an account {Icon.arrow}</Link>
         <Link to="/signin" className="btn btn-quiet btn-block">Sign in</Link>
-        <Link to="/demo" className="btn btn-ride btn-block">Try the demo community</Link>
+        <Link to="/demo" className="btn btn-accent btn-block">Try the demo community</Link>
         <Link to="/start" className="btn-link" style={{ justifySelf: 'center', marginTop: 6 }}>Organising a community? Start one</Link>
       </div>
     </main>
@@ -99,7 +144,7 @@ export function SignIn() {
     <Shell title="Sign in">
       <form onSubmit={submit} className="stack-lg" noValidate>
         <label className="field">Email or mobile number<input autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required /></label>
-        <label className="field">Password<input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required /></label>
+        <PasswordField label="Password" value={password} onChange={setPassword} autoComplete="current-password" />
         <ErrorNote error={error} />
         <button className="btn btn-primary btn-block" disabled={busy || !email || !password}>{busy ? 'Signing in…' : 'Sign in'}</button>
         <p className="small muted" style={{ textAlign: 'center' }}>New here? <Link to="/signup" style={{ fontWeight: 700 }}>Create an account</Link></p>
@@ -135,23 +180,27 @@ export function Signup() {
   return (
     <Shell title="Create your account">
       <form onSubmit={submit} className="stack-lg" noValidate>
-        <label className="field">Email<input type="email" inputMode="email" autoComplete="email" value={f.email} onChange={(e) => set('email', e.target.value)} required /></label>
-        <label className="field">Mobile number<input type="tel" inputMode="tel" autoComplete="tel" placeholder="+91 98765 43210" value={f.mobile} onChange={(e) => set('mobile', e.target.value)} required />
-          <span className="hint">Shared only with people whose ride you’re in, so you can call each other.</span></label>
-        <label className="field">Password<input type="password" autoComplete="new-password" value={f.password} onChange={(e) => set('password', e.target.value)} required minLength={8} maxLength={72} />
-          <span className="hint">At least 8 characters.</span></label>
-        <label className="field">Your name<input autoComplete="name" value={f.name} onChange={(e) => set('name', e.target.value)} required minLength={2} maxLength={80} />
-          <span className="hint">Drivers and riders see your name, gender and rating before they accept you.</span></label>
-        <div className="field"><span>Gender</span>
-          <div className="segmented full wrap" role="radiogroup" aria-label="Gender">
-            {GENDER_OPTIONS.map(([g, label]) => (
-              <button key={g} type="button" role="radio" aria-checked={f.gender === g} aria-pressed={f.gender === g} onClick={() => set('gender', g)}>{label}</button>
-            ))}
+        <Section n={1} title="Your account" hint="Sign in later with your email or mobile number.">
+          <label className="field">Email<input type="email" inputMode="email" autoComplete="email" value={f.email} onChange={(e) => set('email', e.target.value)} required placeholder="you@example.com" /></label>
+          <label className="field">Mobile number<input type="tel" inputMode="tel" autoComplete="tel" placeholder="+91 98765 43210" value={f.mobile} onChange={(e) => set('mobile', e.target.value)} required />
+            <span className="hint">Shared only with people whose ride you’re in, so you can call each other.</span></label>
+          <PasswordField label="Password" value={f.password} onChange={(v) => set('password', v)} autoComplete="new-password" hint="At least 8 characters." />
+        </Section>
+        <Section n={2} title="About you" hint="Drivers and riders see this, with your rating, before they accept you.">
+          <label className="field">Your name<input autoComplete="name" value={f.name} onChange={(e) => set('name', e.target.value)} required minLength={2} maxLength={80} placeholder="e.g. Priya Mehta" /></label>
+          <div className="field" role="radiogroup" aria-labelledby="gender-l"><span id="gender-l">Gender</span>
+            <div className="choice-chips">
+              {GENDER_OPTIONS.map(([g, label]) => (
+                <button key={g} type="button" role="radio" aria-checked={f.gender === g} className="choice" onClick={() => set('gender', g)}>{label}</button>
+              ))}
+            </div>
           </div>
-        </div>
-        <label className="field">Join code (optional)
-          <input value={f.join_code} onChange={(e) => set('join_code', e.target.value.toUpperCase())} autoCapitalize="characters" autoComplete="off" spellCheck={false} maxLength={16} placeholder="e.g. DEMO2026" />
-          <span className="hint">From your college, company or society. Leave empty to join the main community.</span></label>
+        </Section>
+        <Section n={3} title="Your community" hint="Optional. Leave it empty to join the main community.">
+          <label className="field">Join code
+            <input value={f.join_code} onChange={(e) => set('join_code', e.target.value.toUpperCase())} autoCapitalize="characters" autoComplete="off" spellCheck={false} maxLength={16} placeholder="e.g. DEMO2026" className="code-input" />
+            <span className="hint">From your college, company or society.</span></label>
+        </Section>
         <ErrorNote error={error} />
         <button className="btn btn-primary btn-block" disabled={busy || !f.email || !f.mobile || !f.password || !f.name}>{busy ? 'Creating…' : 'Create account'}</button>
         <p className="small muted" style={{ textAlign: 'center' }}>Have an account? <Link to="/signin" style={{ fontWeight: 700 }}>Sign in</Link></p>
@@ -202,54 +251,64 @@ export function DemoPicker() {
   );
 }
 
+const KINDS: [string, string][] = [['university', 'University'], ['corporate', 'Company'], ['residential', 'Neighbourhood'], ['alumni', 'Alumni'], ['professional', 'Professional group']];
+
 export function StartCommunity() {
   const { signIn } = useSession();
   const navigate = useNavigate();
-  const [f, setF] = useState({ name: '', kind: 'university', destination: 'Main gate', lat: '', lon: '', adminName: '', email: '', password: '' });
+  const [f, setF] = useState({ name: '', kind: 'university', destination: 'Main gate', adminName: '', email: '', password: '' });
+  const [place, setPlace] = useState<Place | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const set = (k: keyof typeof f, v: string) => setF((x) => ({ ...x, [k]: v }));
-  function locate() {
-    navigator.geolocation?.getCurrentPosition((p) => setF((x) => ({ ...x, lat: p.coords.latitude.toFixed(5), lon: p.coords.longitude.toFixed(5) })),
-      () => setError(new Error('Location permission was denied. Type the coordinates instead.')));
+
+  async function tapMap(pt: { lat: number; lon: number }) {
+    setPlace({ ...pt, name: await nameOf(pt.lat, pt.lon) });
   }
   async function submit(e: FormEvent) {
     e.preventDefault();
-    const lat = Number(f.lat), lon = Number(f.lon);
-    if (!f.lat || !f.lon || Number.isNaN(lat) || Number.isNaN(lon)) return setError(new Error('Set the campus location first.'));
+    if (!place) return setError(new Error('Set where everyone goes: search for it, use your location, or tap the map.'));
+    if (f.password.length < 8) return setError(new Error('Use at least 8 characters for your password.'));
     setBusy(true); setError(null);
     try {
       const r = await createCommunity({
-        name: f.name.trim(), kind: f.kind, center_lat: lat, center_lon: lon,
-        destinations: [{ name: f.destination.trim() || 'Main gate', lat, lon }],
+        name: f.name.trim(), kind: f.kind, center_lat: place.lat, center_lon: place.lon,
+        destinations: [{ name: f.destination.trim() || 'Main gate', lat: place.lat, lon: place.lon }],
         admin: { name: f.adminName.trim(), email: f.email.trim(), password: f.password },
       });
       signIn(r.session);
       navigate('/dashboard', { replace: true });
     } catch (err) { setError(err); } finally { setBusy(false); }
   }
+  const ready = f.name.trim() && place && f.adminName.trim() && f.email.includes('@') && f.password.length >= 8;
   return (
     <Shell title="Start a community">
-      <form onSubmit={submit} className="stack-lg">
-        <label className="field">Community name<input value={f.name} onChange={(e) => set('name', e.target.value)} required maxLength={120} placeholder="e.g. Riverside Tech Park" /></label>
-        <label className="field">Type
-          <select value={f.kind} onChange={(e) => set('kind', e.target.value)}>
-            <option value="university">University</option><option value="corporate">Company</option><option value="residential">Residential</option>
-            <option value="alumni">Alumni network</option><option value="professional">Professional group</option>
-          </select>
-        </label>
-        <label className="field">Where everyone goes<input value={f.destination} onChange={(e) => set('destination', e.target.value)} maxLength={120} /></label>
-        <div className="grid-2">
-          <label className="field">Latitude<input inputMode="decimal" value={f.lat} onChange={(e) => set('lat', e.target.value)} /></label>
-          <label className="field">Longitude<input inputMode="decimal" value={f.lon} onChange={(e) => set('lon', e.target.value)} /></label>
-        </div>
-        <button type="button" className="btn btn-quiet" onClick={locate}>{Icon.pin} Use where I am now</button>
-        <label className="field">Your name<input value={f.adminName} onChange={(e) => set('adminName', e.target.value)} required autoComplete="name" /></label>
-        <label className="field">Email<input type="email" value={f.email} onChange={(e) => set('email', e.target.value)} required autoComplete="email" /></label>
-        <label className="field">Password<input type="password" value={f.password} onChange={(e) => set('password', e.target.value)} required minLength={8} autoComplete="new-password" />
-          <span className="hint">At least 8 characters.</span></label>
+      <p className="muted">Set up carpooling for your college, company or neighbourhood. You’ll get a join code to share with members.</p>
+      <form onSubmit={submit} className="stack-lg" noValidate>
+        <Section n={1} title="Your community">
+          <label className="field">Community name<input value={f.name} onChange={(e) => set('name', e.target.value)} required maxLength={120} placeholder="e.g. Riverside Tech Park" /></label>
+          <div className="field" role="radiogroup" aria-labelledby="kind-l"><span id="kind-l">Type</span>
+            <div className="choice-chips">
+              {KINDS.map(([k, label]) => (
+                <button key={k} type="button" role="radio" aria-checked={f.kind === k} className="choice" onClick={() => set('kind', k)}>{label}</button>
+              ))}
+            </div>
+          </div>
+        </Section>
+        <Section n={2} title="Where everyone goes" hint="The campus, office or gate most rides end at.">
+          <label className="field">Name of the place<input value={f.destination} onChange={(e) => set('destination', e.target.value)} maxLength={120} placeholder="e.g. Main gate" /></label>
+          <PlaceField label="Location" value={place} onChange={setPlace} active onActivate={() => {}} placeholder="Search an address or landmark" />
+          <MapView label="Map. Tap to set where everyone goes." points={place ? [{ ...place, kind: 'to', label: f.destination || 'Destination' }] : []}
+            onPick={tapMap} height={200} />
+          {place && <p className="picked">{Icon.pin}<span><strong>{f.destination || 'Destination'}</strong><br /><span className="small muted">{place.name}</span></span></p>}
+        </Section>
+        <Section n={3} title="Your organiser account" hint="You’ll use this to sign in to the dashboard.">
+          <label className="field">Your name<input value={f.adminName} onChange={(e) => set('adminName', e.target.value)} required autoComplete="name" placeholder="e.g. Asha Rao" /></label>
+          <label className="field">Email<input type="email" inputMode="email" value={f.email} onChange={(e) => set('email', e.target.value)} required autoComplete="email" placeholder="you@example.com" /></label>
+          <PasswordField label="Password" value={f.password} onChange={(v) => set('password', v)} autoComplete="new-password" hint="At least 8 characters." />
+        </Section>
         <ErrorNote error={error} />
-        <button className="btn btn-primary btn-block" disabled={busy}>{busy ? 'Creating…' : 'Create community'}</button>
+        <button className="btn btn-primary btn-block" disabled={busy || !ready}>{busy ? 'Creating…' : <>Create community {Icon.arrow}</>}</button>
       </form>
     </Shell>
   );

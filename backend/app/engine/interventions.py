@@ -81,25 +81,37 @@ def plan(db: Session, ctx: Context, tenant: Tenant, budget: int | None = None, s
         chosen.sort(key=lambda t: t[0], reverse=True)
         chosen = chosen[:budget]
 
-    out = []
-    for pri, m, kind, msg, suggested in chosen:
-        role = {"driver": "driver", "rider": "rider", "connector": "connector"}.get(kind, "driver" if m.has_car else "rider")
-        iv = Intervention(tenant_id=tenant.id, member_id=m.id, day=day, kind=kind, role=role, strategy=strategy,
-                          message=msg, suggested_member_id=suggested, priority=round(pri, 4), features=ctx.features(m))
-        m.nudges_received += 1
-        m.last_nudged_day = day
-        db.add(iv)
-        db.add(Event(tenant_id=tenant.id, member_id=m.id, day=day, type="nudge_sent", payload={"kind": kind}))
-        out.append(iv)
-        title = {"driver": "Offer a ride today?", "rider": "A ride on your route", "connector": "Invite your neighbours"}.get(
-            kind, "Try FellaRide this week")
-        notify.send(db, tenant, m.id, "nudge", title, msg)
-        # members who use the app see the nudge in Alerts, with a button to act on it
-        user_id = db.scalar(select(User.id).where(User.member_id == m.id))
-        if user_id:
-            db.add(Alert(user_id=user_id, kind=f"nudge_{kind}", title=title, body=msg))
+    out = [deliver(db, ctx, tenant, m, kind, msg, suggested, pri, strategy) for pri, m, kind, msg, suggested in chosen]
     db.flush()
     return out
+
+
+NUDGE_TITLE = {"driver": "Offer a ride today?", "rider": "A ride on your route", "connector": "Invite your neighbours"}
+
+
+def deliver(db: Session, ctx: Context, tenant: Tenant, m: Member, kind: str, msg: str, suggested: int | None,
+            priority: float, strategy: str) -> Intervention:
+    """Send one nudge: record it, count it against the member's fatigue, notify them, and show it in the app."""
+    day = ctx.day
+    role = {"driver": "driver", "rider": "rider", "connector": "connector"}.get(kind, "driver" if m.has_car else "rider")
+    iv = Intervention(tenant_id=tenant.id, member_id=m.id, day=day, kind=kind, role=role, strategy=strategy,
+                      message=msg, suggested_member_id=suggested, priority=round(priority, 4), features=ctx.features(m))
+    m.nudges_received += 1
+    m.last_nudged_day = day
+    db.add(iv)
+    db.add(Event(tenant_id=tenant.id, member_id=m.id, day=day, type="nudge_sent", payload={"kind": kind, "strategy": strategy}))
+    title = NUDGE_TITLE.get(kind, "Try FellaRide this week")
+    notify.send(db, tenant, m.id, "nudge", title, msg)
+    # members who use the app see the nudge in Alerts, with a button to act on it
+    user_id = db.scalar(select(User.id).where(User.member_id == m.id))
+    if user_id:
+        db.add(Alert(user_id=user_id, kind=f"nudge_{kind}", title=title, body=msg))
+    return iv
+
+
+def eligible(m: Member, day: int) -> bool:
+    """Joined, and not nudged within the cooldown."""
+    return _eligible(m, day, get_settings().nudge_cooldown_days)
 
 
 def respond(db: Session, tenant: Tenant, iv: Intervention, responded: bool, learn: bool = True,

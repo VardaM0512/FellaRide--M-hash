@@ -30,7 +30,8 @@ export default function Dashboard() {
         {session?.tenant.join_code && (
           <span className="chip" style={{ padding: '6px 12px' }}>Join code <span className="join-code" style={{ fontSize: 16 }}>{session.tenant.join_code}</span></span>
         )}
-        <Link to="/dashboard/proof" className="btn btn-small">Proof</Link>
+        <Link to="/dashboard/expansion" className="btn btn-primary btn-small">Expansion</Link>
+        <Link to="/dashboard/proof" className="btn btn-quiet btn-small">Proof</Link>
         <button className="btn btn-quiet btn-small" onClick={() => { signOut(); navigate('/welcome'); }}>Sign out</button>
       </header>
 

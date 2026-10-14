@@ -7,7 +7,8 @@ import { useEffect, useRef } from 'react';
 export interface MapPoint { lat: number; lon: number; kind: 'from' | 'to' | 'pickup' | 'me'; label?: string }
 export interface MapRoute { id: number; coords: [number, number][]; selected?: boolean }
 
-const COLORS: Record<MapPoint['kind'], string> = { from: '#F5A524', to: '#0B0B0C', pickup: '#047857', me: '#6D28D9' };
+// vermilion start, ink end, cobalt pickup, grey you
+const COLORS: Record<MapPoint['kind'], string> = { from: '#FF6A3D', to: '#0D0E10', pickup: '#2F5BEA', me: '#66676B' };
 const dark = () => document.documentElement.dataset.theme === 'dark';
 
 export default function MapView({ points = [], routes = [], center, onPick, onRouteClick, height = 260, label }: {
@@ -47,7 +48,7 @@ export default function MapView({ points = [], routes = [], center, onPick, onRo
     [...routes].sort((a, b) => Number(!!a.selected) - Number(!!b.selected)).forEach((r) => {
       if (r.selected) L.polyline(r.coords, { color: dark() ? '#000' : '#fff', weight: 10, opacity: 0.9, interactive: false }).addTo(g);
       const line = L.polyline(r.coords, {
-        color: r.selected ? (dark() ? '#F4F4F5' : '#0B0B0C') : '#8A8F98', weight: r.selected ? 5 : 4, opacity: r.selected ? 1 : 0.6,
+        color: r.selected ? (dark() ? '#7C9BFF' : '#2F5BEA') : '#8A8B86', weight: r.selected ? 5 : 4, opacity: r.selected ? 1 : 0.6,
         lineCap: 'round', lineJoin: 'round',
       }).addTo(g);
       if (onRouteClick) line.on('click', (e) => { L.DomEvent.stopPropagation(e); onRouteClick(r.id); });

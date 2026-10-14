@@ -9,9 +9,9 @@ import random
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..engine import daycycle, interventions, lifecycle, matching, referrals, rides
+from ..engine import daycycle, expansion, interventions, lifecycle, matching, referrals, rides
 from ..engine.context import build_context
-from ..models import Booking, Member, MemberState, RideOffer, SyntheticTrait, Tenant
+from ..models import Booking, Intervention, Member, MemberState, RideOffer, SyntheticTrait, Tenant
 
 
 class SimulationError(ValueError):
@@ -25,7 +25,7 @@ def _traits(db: Session, tenant: Tenant) -> dict[int, SyntheticTrait]:
 
 def simulate_day(db: Session, tenant: Tenant, rng: random.Random, traits: dict[int, SyntheticTrait],
                  strategy: str = "smart", budget: int = 14, connectors_first: bool = True,
-                 referrals_on: bool = True, learning_on: bool = True) -> dict:
+                 referrals_on: bool = True, learning_on: bool = True, expansion_autopilot: bool = False) -> dict:
     day = tenant.current_day
     ctx = build_context(db, tenant)
     summary = {"day": day, "joined_organic": 0, "nudges": 0, "responded": 0, "offers": 0, "requests": 0,
@@ -38,9 +38,16 @@ def simulate_day(db: Session, tenant: Tenant, rng: random.Random, traits: dict[i
             summary["joined_organic"] += 1
     ctx = build_context(db, tenant)
 
-    # Identify + Nudge
-    for iv in interventions.plan(db, ctx, tenant, budget=budget, strategy=strategy,
-                                 connectors_first=connectors_first, rng=rng):
+    # Expand: the Network Expansion Engine looks for areas to grow and nudges people there
+    if expansion_autopilot:
+        summary["expansion_actions"] = len(expansion.run_cycle(db, tenant)["actions"])
+        ctx = build_context(db, tenant)
+
+    # Identify + Nudge (plus any expansion nudges sent today, which members answer the same way)
+    pending = list(db.scalars(select(Intervention).where(Intervention.tenant_id == tenant.id, Intervention.day == day,
+                                                         Intervention.status == "sent", Intervention.strategy == "expansion")))
+    for iv in pending + interventions.plan(db, ctx, tenant, budget=budget, strategy=strategy,
+                                           connectors_first=connectors_first, rng=rng):
         m, tr = ctx.members[iv.member_id], traits.get(iv.member_id)
         if tr is None:   # a real person who joined the demo community: they answer in the app, not here
             continue

@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 
 from sqlalchemy import select
 
-from .api import account, community, engagement, insights, rides, social, trips
+from .api import account, community, engagement, expansion, insights, rides, social, trips
 from .api.account import public_tenant
 from .config import get_settings
 from .db import SessionLocal, init_db
@@ -20,7 +20,7 @@ from .engine.scorer import load_pretrained
 from .auth import hash_password
 from .models import Tenant, User
 from .sim.behaviour import simulate
-from .sim.synthetic import create_synthetic_tenant
+from .sim.synthetic import create_neighbour_tenant, create_synthetic_tenant
 
 log = logging.getLogger("fellaride")
 
@@ -43,7 +43,11 @@ def seed_demo_if_empty() -> None:
                     password_hash=hash_password(get_settings().demo_admin_password)))
         db.commit()
         simulate(db, t, days)
-        log.info("Seeded synthetic demo community %s with %s simulated days", t.id, days)
+        # a second synthetic community nearby, so the expansion engine has someone to link with
+        nb = create_neighbour_tenant(db, t)
+        db.commit()
+        simulate(db, nb, days)
+        log.info("Seeded synthetic demo communities %s and %s with %s simulated days", t.id, nb.id, days)
 
 
 @asynccontextmanager
@@ -80,5 +84,5 @@ def health():
     return {"status": "ok", "model_loaded": get_settings().scorer_path.exists()}
 
 
-for r in (account.router, community.router, rides.router, engagement.router, insights.router, trips.router, social.router):
+for r in (account.router, community.router, rides.router, engagement.router, insights.router, trips.router, social.router, expansion.router):
     app.include_router(r, prefix="/api/v1")

@@ -27,6 +27,7 @@ router = APIRouter(prefix="/community", tags=["community"])
 CO2_KG_PER_KM = 0.12          # an average petrol car, per km not driven
 EMOJIS = ("thumbs", "heart", "party", "thanks")
 FEED_LIMIT = 40
+ACTIVITY_IN_MIX = 15
 
 
 # ---------- who is asking ----------
@@ -211,7 +212,8 @@ def feed(actor: Actor = Depends(current_actor), db: Session = Depends(get_db),
                            .order_by(CommunityPost.created_at.desc(), CommunityPost.id.desc()).limit(FEED_LIMIT))
         items += [_post_out(db, p, actor.user.id) for p in posts]
     if show in ("all", "activity"):
-        items += _activity(db, tenant)
+        # in the mixed view, ride activity is capped so a busy day never pushes members' posts off the board
+        items += _activity(db, tenant)[: ACTIVITY_IN_MIX if show == "all" else FEED_LIMIT]
     items.sort(key=lambda i: i["created_at"], reverse=True)
     return {"items": items[:FEED_LIMIT]}
 

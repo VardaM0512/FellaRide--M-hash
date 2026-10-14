@@ -88,7 +88,7 @@ export default function Find() {
           </div>
           {shown.length === 0 && <p className="note note-info">No rides pass near you yet. Try without a drop point or a time, or check back soon. You’ll get an alert when someone posts a ride near you.</p>}
           {shown.map((t) => (
-            <article key={t.id} className="card ride-card">
+            <article key={t.id} className="card ride-card ticket">
               <div className="person">
                 <Avatar name={t.driver.name} driver />
                 <div style={{ flex: 1, minWidth: 0 }}>

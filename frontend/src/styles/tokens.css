@@ -1,51 +1,66 @@
-/* FellaRide design tokens. Monochrome base (black ink, white surfaces, soft grey page) with one accent per role:
-   amber = drivers and seats offered, emerald = riders and matches, violet = invites, red = errors only.
-   Text colours were picked to clear WCAG AA (4.5:1) on the backgrounds they sit on. */
+/* FellaRide design tokens: "the commuter's pass". Ink black and warm paper, set sharp, with one signal colour,
+   electric lime, for what is live or yours (the next action, your streak, today's ride). Lime is always a fill
+   or a mark with ink on top, never text on a light surface. Colour with a job: cobalt for riders and links,
+   vermilion for drivers, green for success, red for errors. One typeface: Geist.
+   Every text colour clears WCAG AA (4.5:1) on the surface it sits on.
+   Token names are historical (peacock = cobalt accent, marigold = driver vermilion, jamun = links). */
 :root {
-  --mist: #F3F4F6;      /* page background */
+  --brand-green: #008a00;   /* the logo only */
+  --lime: #D4F53C;          /* the signal colour: fills and marks, ink on top */
+  --lime-deep: #A9CC10;     /* lime that still reads as lime on white (marks, not text) */
+
+  --mist: #F3F3EE;      /* page background: warm paper */
   --paper: #FFFFFF;     /* cards, sheets, map surface */
-  --ink: #0B0B0C;       /* text, primary buttons, icons */
-  --fog: #5E636E;       /* captions, units, inactive */
-  --marigold: #F5A524;  /* drivers, seats offered (fill only: ink text on top) */
-  --peacock: #047857;   /* riders, matches, successful rides */
-  --jamun: #6D28D9;     /* referrals and invites */
-  --chilli: #DC2626;    /* errors and cancelled rides only */
+  --ink: #0D0E10;       /* text, primary buttons, dark passes */
+  --ink-2: #1A1C1F;     /* raised surfaces on ink */
+  --fog: #66676B;       /* secondary text */
+  --marigold: #FF6A3D;  /* drivers: vermilion markers */
+  --peacock: #2F5BEA;   /* accent: progress, highlights, riders */
+  --jamun: #2F5BEA;     /* links */
+  --success: #1E7A4C;   /* confirmations */
+  --chilli: #D2342A;    /* errors and cancelled rides only */
 
-  --line: #E4E6EA;      /* hairlines */
-  --mist-2: #EDEEF1;    /* filled inputs, skeletons, tracks */
-  --mist-3: #E2E4E8;    /* hover on filled surfaces */
-  --peacock-wash: #DDF5EC;
-  --marigold-wash: #FEF3DC;
-  --jamun-wash: #EEE7FD;
-  --chilli-wash: #FDE8E8;
-  --on-accent: #FFFFFF; /* text on peacock / jamun fills */
+  --line: #E3E3DC;      /* hairlines */
+  --mist-2: #ECECE5;    /* filled inputs, skeletons, tracks */
+  --mist-3: #E3E3DC;    /* hover on filled surfaces */
+  --peacock-wash: #E9EEFD;
+  --marigold-wash: #FFEDE6;
+  --jamun-wash: #E9EEFD;
+  --success-wash: #E6F2EB;
+  --chilli-wash: #FBE9E7;
+  --on-accent: #FFFFFF; /* text on cobalt fills */
   --on-ink: #FFFFFF;    /* text on ink fills */
+  --on-lime: #0D0E10;   /* text on lime */
+  --driver-text: #B23A12; /* vermilion-family text that reads on white and on its wash */
+  --hero: #0D0E10;      /* dark passes: welcome hero, today card, challenge */
+  --hero-text: #F3F3EE;
+  --hero-muted: #A2A39F;
 
-  --shadow-1: 0 1px 2px rgba(11, 11, 12, 0.06), 0 1px 3px rgba(11, 11, 12, 0.04);
-  --shadow-2: 0 4px 14px rgba(11, 11, 12, 0.08), 0 1px 3px rgba(11, 11, 12, 0.05);
-  --shadow-3: 0 16px 40px rgba(11, 11, 12, 0.14), 0 2px 8px rgba(11, 11, 12, 0.06);
-  --shadow-sheet: 0 -12px 40px rgba(11, 11, 12, 0.18);
-  --glass: rgba(255, 255, 255, 0.78);
+  --shadow-1: none;
+  --shadow-2: 0 1px 2px rgba(13, 14, 16, 0.06);
+  --shadow-3: 0 12px 32px rgba(13, 14, 16, 0.12);
+  --shadow-sheet: 0 -8px 24px rgba(13, 14, 16, 0.12);
+  --glass: #FFFFFF;
 
-  --font-display: 'Inter Tight', 'Inter', system-ui, -apple-system, sans-serif;
-  --font-body: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-display: 'Geist', system-ui, -apple-system, sans-serif;
+  --font-body: 'Geist', system-ui, -apple-system, sans-serif;
   --fs-body: calc(15px * var(--ts));
   --fs-small: calc(13px * var(--ts));
-  --fs-h3: calc(19px * var(--ts));
+  --fs-h3: calc(18px * var(--ts));
   --fs-h2: calc(26px * var(--ts));
   --fs-h1: calc(34px * var(--ts));
-  --fs-hero: calc(60px * var(--ts));
+  --fs-hero: calc(56px * var(--ts));
 
   --r-sheet: 20px;
-  --r-card: 18px;
-  --r-button: 14px;
+  --r-card: 16px;
+  --r-button: 999px;
   --r-input: 12px;
   --r-chip: 999px;
   --tap: 44px;
 
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
-  --focus: #2563EB;     /* keyboard focus ring: blue reads on black, white and every accent */
+  --focus: #2F5BEA;     /* keyboard focus ring */
   --ts: 1;              /* text scale, from the Text size setting */
   color-scheme: light;
 }
@@ -56,44 +71,57 @@
 
 /* dark theme: chosen in settings, or following the system (see src/lib/prefs.tsx) */
 :root[data-theme='dark'] {
-  --mist: #09090B;
-  --paper: #17171A;
-  --ink: #F4F4F5;
-  --fog: #A1A1AA;
-  --marigold: #FBBF24;
-  --peacock: #34D399;
-  --jamun: #A78BFA;
-  --chilli: #F87171;
-  --line: #27272C;
-  --mist-2: #212126;
-  --mist-3: #2B2B31;
-  --peacock-wash: #0F2E24;
-  --marigold-wash: #33270C;
-  --jamun-wash: #261C3D;
-  --chilli-wash: #3A1515;
-  --on-accent: #09090B;
-  --on-ink: #09090B;
-  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.5);
-  --shadow-2: 0 4px 14px rgba(0, 0, 0, 0.5);
-  --shadow-3: 0 16px 40px rgba(0, 0, 0, 0.6);
-  --shadow-sheet: 0 -12px 40px rgba(0, 0, 0, 0.6);
-  --glass: rgba(23, 23, 26, 0.78);
-  --focus: #60A5FA;
+  --mist: #0A0B0C;
+  --paper: #141518;
+  --ink: #F3F3EE;
+  --ink-2: #1D1F23;
+  --fog: #A2A39F;
+  --marigold: #FF8A63;
+  --peacock: #7C9BFF;
+  --jamun: #8FAAFF;
+  --success: #5CCB8E;
+  --chilli: #F2786E;
+  --line: #26282C;
+  --mist-2: #1C1E21;
+  --mist-3: #26282C;
+  --peacock-wash: #1A2342;
+  --marigold-wash: #3A2219;
+  --jamun-wash: #1A2342;
+  --success-wash: #13291D;
+  --chilli-wash: #3A1A18;
+  --on-accent: #0A0B0C;
+  --on-ink: #0A0B0C;
+  --driver-text: #FF9C7A;
+  --hero: #17191C;
+  --hero-text: #F3F3EE;
+  --hero-muted: #A2A39F;
+  --shadow-1: none;
+  --shadow-2: none;
+  --shadow-3: 0 12px 32px rgba(0, 0, 0, 0.5);
+  --shadow-sheet: 0 -8px 24px rgba(0, 0, 0, 0.5);
+  --glass: #141518;
+  --focus: #8FAAFF;
   color-scheme: dark;
 }
 
 /* higher contrast: darker secondary text, visible hairlines and field edges */
 :root[data-contrast='more'] {
-  --fog: #33373E;
-  --line: #8B9099;
-  --mist-2: #E6E7EA;
-  --peacock: #035C43;
-  --chilli: #B91C1C;
+  --fog: #3A3B3E;
+  --line: #8A8A84;
+  --mist-2: #E6E6DF;
+  --peacock: #1D45C7;
+  --jamun: #1D45C7;
+  --success: #165C39;
+  --chilli: #A42A20;
+  --driver-text: #8A2C0C;
 }
 :root[data-theme='dark'][data-contrast='more'] {
-  --fog: #D4D4D8;
-  --line: #71717A;
-  --mist-2: #26262B;
-  --peacock: #6EE7B7;
+  --fog: #D6D6D2;
+  --line: #707070;
+  --mist-2: #232529;
+  --peacock: #A9BDFF;
+  --jamun: #A9BDFF;
+  --success: #8ADBAE;
   --chilli: #FCA5A5;
+  --driver-text: #FFC2AD;
 }

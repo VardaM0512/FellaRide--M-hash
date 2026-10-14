@@ -50,15 +50,9 @@ export function CountUp({ value, decimals = 0 }: { value: number; decimals?: num
   return <>{shown.toLocaleString(undefined, { maximumFractionDigits: decimals, minimumFractionDigits: decimals })}</>;
 }
 
-export function Logo() {
-  return (
-    <svg width="40" height="40" viewBox="0 0 64 64" aria-hidden="true">
-      <rect width="64" height="64" rx="16" fill="#0B0B0C" />
-      <path d="M12 36 C 26 36 32 26 50 22" stroke="#34D399" strokeWidth="4.5" fill="none" strokeLinecap="round" />
-      <path d="M14 26 C 28 26 34 22 50 22" stroke="#F5A524" strokeWidth="4.5" fill="none" strokeLinecap="round" />
-      <circle cx="50" cy="22" r="6" fill="#FFFFFF" />
-    </svg>
-  );
+/** The FellaRide logo (green car, "fella"), the same artwork as fellaride.com. */
+export function Logo({ size = 40 }: { size?: number }) {
+  return <img src="/brand/fella-logo.png" alt="" width={size} height={size} className="brand-logo" style={{ width: size, height: size }} />;
 }
 
 export const DemoTag = ({ show }: { show: boolean }) => (show ? <span className="chip chip-demo">Demo data</span> : null);

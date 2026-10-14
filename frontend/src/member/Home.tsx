@@ -1,12 +1,37 @@
 // Home: "How are you travelling today?" is asked every time (you can drive one day and ride the next).
 // If you're already in a ride, that comes first.
 import { Link } from 'react-router-dom';
+import { useImpact } from '../api/community';
 import { useMyTrips, type Trip } from '../api/trips';
 import { Avatar, ErrorNote, Icon, Skeleton } from '../components/ui';
 import { firstName } from '../lib/format';
 import { useSession } from '../lib/session';
 import { ChallengeCard } from './Community';
 import { GENDER_LABEL, SEAT_STATUS, TRIP_STATUS, ratingText, whenLabel } from '../lib/tripFormat';
+
+const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+/** This week, Monday to Sunday: a lime mark on each day you shared a ride. */
+function RideWeek({ trips, streak }: { trips: Trip[]; streak: number }) {
+  const now = new Date();
+  const today = (now.getDay() + 6) % 7;
+  const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - today);
+  const rode = new Set(trips.filter((t) => t.status === 'completed' || t.status === 'started').map((t) => {
+    const d = new Date(t.depart_at);
+    return Math.floor((d.getTime() - monday.getTime()) / 86_400_000);
+  }).filter((i) => i >= 0 && i < 7));
+  return (
+    <div className="week-wrap">
+      <ol className="week" aria-label={`Your ride week: ${rode.size} ${rode.size === 1 ? 'day' : 'days'} with a shared ride`}>
+        {DAYS.map((d, i) => (
+          <li key={d} className={`${rode.has(i) ? 'on' : ''}${i === today ? ' today' : ''}`}><i aria-hidden="true" />{d}</li>
+        ))}
+      </ol>
+      <p className="small">{rode.size ? `${rode.size} ${rode.size === 1 ? 'day' : 'days'} shared this week. Keep the run going.`
+        : streak > 0 ? `Keep your ${streak}-week streak alive: share a ride this week.` : 'No shared rides yet this week. Today is a good day to start.'}</p>
+    </div>
+  );
+}
 
 export function TripRow({ trip, note }: { trip: Trip; note?: string }) {
   return (
@@ -25,6 +50,7 @@ export function TripRow({ trip, note }: { trip: Trip; note?: string }) {
 export default function Home() {
   const { session } = useSession();
   const mine = useMyTrips();
+  const impact = useImpact();
   const name = session?.profile?.name ? firstName(session.profile.name) : '';
 
   if (mine.error) return <ErrorNote error={mine.error} onRetry={() => mine.refetch()} />;
@@ -49,14 +75,18 @@ export default function Home() {
         </section>
       ) : (
         <section className="stack-lg" aria-labelledby="role-h">
-          <div className="greet">
-            <p className="eyebrow">{greeting}{name ? `, ${name}` : ''}</p>
-            <h2 id="role-h">How are you travelling today?</h2>
+          <div className="today-pass">
+            <div className="pass-top">
+              <p className="eyebrow">{greeting}{name ? `, ${name}` : ''}</p>
+              {(impact.data?.streak_weeks ?? 0) > 0 && <span className="streak">{Icon.flame} {impact.data!.streak_weeks}-week streak</span>}
+            </div>
+            <h2 id="role-h">Where are you headed?</h2>
+            <Link to="/find" className="where-to">
+              {Icon.search}<span className="grow">Where to?</span>
+              <span className="when">{Icon.clock} Now</span>
+            </Link>
+            <RideWeek trips={[...history, ...(active ? [active] : [])]} streak={impact.data?.streak_weeks ?? 0} />
           </div>
-          <Link to="/find" className="where-to">
-            {Icon.search}<span className="grow">Where to?</span>
-            <span className="when">{Icon.clock} Now</span>
-          </Link>
           <div className="tiles">
             <Link to="/offer" className="tile drive">
               <span className="go" aria-hidden="true">→</span>

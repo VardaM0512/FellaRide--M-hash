@@ -36,7 +36,7 @@ function apply(p: Prefs) {
   root.dataset.contrast = p.highContrast || media('(prefers-contrast: more)')?.matches ? 'more' : 'normal';
   root.dataset.links = p.underlineLinks ? 'underline' : 'plain';
   root.style.colorScheme = theme;
-  document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.setAttribute('content', theme === 'dark' ? '#09090B' : '#F3F4F6'));
+  document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.setAttribute('content', theme === 'dark' ? '#0A0B0C' : '#F3F3EE'));
 }
 
 interface Ctx { prefs: Prefs; set: <K extends keyof Prefs>(k: K, v: Prefs[K]) => void; reset: () => void; theme: 'light' | 'dark'; motionReduced: boolean }

@@ -80,14 +80,11 @@ function NearbyAlerts() {
   );
 }
 
-const BADGE_ICON: Record<string, string> = {
-  first_ride: '🚗', regular: '🔁', driver: '🪑', social: '🤝', streak: '🔥', eco: '🌱', connector: '💌', voice: '📣', star: '⭐',
-};
 
 function BadgeTile({ b }: { b: Badge }) {
   return (
     <li className={`badge-tile${b.earned ? ' earned' : ''}`}>
-      <span className="badge-art" aria-hidden="true">{BADGE_ICON[b.code] ?? '🏅'}</span>
+      <span className="badge-art" aria-hidden="true">{Icon.check}</span>
       <strong>{b.label}</strong>
       <span className="small muted">{b.desc}</span>
       {b.earned
@@ -115,7 +112,7 @@ function Impact() {
       <section className="impact" aria-labelledby="impact-h">
         <div className="impact-top">
           <h2 id="impact-h">Your impact</h2>
-          {d.streak_weeks > 0 && <span className="chip chip-on-dark">{Icon.flame} {d.streak_weeks}-week streak</span>}
+          {d.streak_weeks > 0 && <span className="chip">{d.streak_weeks}-week streak</span>}
         </div>
         <ul className="impact-grid">
           {stats.map((s) => <li key={s.l}><strong className="num"><CountUp value={s.v} decimals={s.dec ?? 0} /></strong><span>{s.l}</span></li>)}

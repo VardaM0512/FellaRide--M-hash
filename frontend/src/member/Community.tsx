@@ -34,7 +34,7 @@ export function ChallengeCard({ compact = false }: { compact?: boolean }) {
   return (
     <section className="challenge" aria-labelledby="challenge-h">
       <div className="challenge-top">
-        <span className="chip chip-on-dark">{Icon.trophy} Weekly challenge</span>
+        <span className="small" style={{ fontWeight: 600 }}>Weekly challenge</span>
         <span className="small">{c.days_left} day{c.days_left === 1 ? '' : 's'} left</span>
       </div>
       <h2 id="challenge-h">{done ? 'Challenge complete!' : c.title}</h2>
@@ -56,16 +56,15 @@ function Stats() {
   if (!ov.data) return <Skeleton h={92} />;
   const s = ov.data.stats;
   const items = [
-    { icon: Icon.people, value: s.members, label: 'members' },
-    { icon: Icon.car, value: s.rides_total, label: 'rides shared' },
-    { icon: Icon.leaf, value: s.co2_kg, label: 'kg CO₂ saved (est.)' },
-    { icon: Icon.ride, value: s.km_total, label: 'km shared' },
+    { value: s.members, label: 'members' },
+    { value: s.rides_total, label: 'rides shared' },
+    { value: s.co2_kg, label: 'kg CO₂ saved (est.)' },
+    { value: s.km_total, label: 'km shared' },
   ];
   return (
     <ul className="stat-strip" aria-label="What the community has done">
       {items.map((i) => (
         <li key={i.label} className="stat-tile">
-          <span className="stat-icon">{i.icon}</span>
           <strong className="num"><CountUp value={i.value} /></strong>
           <span className="small">{i.label}</span>
         </li>
@@ -270,7 +269,6 @@ function Leaderboard() {
               {[podium[1], podium[0], podium[2]].map((r, i) => (
                 <motion.li key={`${period}-${metric}-${r.rank}`} className={`place p${r.rank}${r.me ? ' me' : ''}`}
                   initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: [0.15, 0, 0.3][i], type: 'spring', stiffness: 260, damping: 22 }}>
-                  <span className="medal" aria-hidden="true">{['🥇', '🥈', '🥉'][r.rank - 1]}</span>
                   <Avatar name={r.name} />
                   <strong>{r.name.split(' ')[0]}{r.me ? ' (you)' : ''}</strong>
                   <span className="small">{METRIC[metric].unit(r.value)}</span>

@@ -412,3 +412,28 @@ class PostComment(Base):
     author_name: Mapped[str] = mapped_column(String(80))
     body: Mapped[str] = mapped_column(String(300))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class ExpansionAction(Base):
+    """One growth action the Network Expansion Engine took (or proposed) for an area, and what came of it.
+
+    target_ids / intervention_ids: the joined members it nudged and the nudges it sent. baseline: the area's
+    numbers when the action was taken; outcome: the same numbers when it was evaluated, plus whether it worked.
+    """
+
+    __tablename__ = "expansion_actions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    day: Mapped[int] = mapped_column(Integer, index=True)
+    kind: Mapped[str] = mapped_column(String(24))      # recruit_drivers | activate_riders | invite_neighbours | reactivate | shared_corridor
+    area: Mapped[str] = mapped_column(String(120))
+    zones: Mapped[list] = mapped_column(JSON, default=list)
+    reason: Mapped[str] = mapped_column(String(300))
+    message: Mapped[str] = mapped_column(String(300), default="")
+    target_ids: Mapped[list] = mapped_column(JSON, default=list)
+    intervention_ids: Mapped[list] = mapped_column(JSON, default=list)
+    expected: Mapped[float] = mapped_column(Float, default=0.0)
+    baseline: Mapped[dict] = mapped_column(JSON, default=dict)
+    outcome: Mapped[dict] = mapped_column(JSON, default=dict)
+    status: Mapped[str] = mapped_column(String(12), default="active")   # active | evaluated | proposed
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)

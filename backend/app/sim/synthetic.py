@@ -35,14 +35,14 @@ LAST = "ABCDEGHJKLMNPRSTV"
 
 
 def create_synthetic_tenant(db: Session, name: str = "Synthetic University (demo)", seed_active: int = 15,
-                            seed: int = 7) -> Tenant:
+                            seed: int = 7, center: tuple[float, float] = CENTER, kind: str = "university") -> Tenant:
     rng = random.Random(seed)
-    tenant = Tenant(name=name, kind="university", center_lat=CENTER[0], center_lon=CENTER[1], is_synthetic=True)
+    tenant = Tenant(name=name, kind=kind, center_lat=center[0], center_lon=center[1], is_synthetic=True)
     db.add(tenant)
     db.flush()
     dests = []
     for dname, e, n in DESTINATIONS:
-        lat, lon = offset(*CENTER, e, n)
+        lat, lon = offset(*center, e, n)
         d = Destination(tenant_id=tenant.id, name=dname, lat=lat, lon=lon)
         db.add(d)
         dests.append(d)
@@ -58,7 +58,7 @@ def create_synthetic_tenant(db: Session, name: str = "Synthetic University (demo
         di = 0 if u < weights[0] else 1 if u < weights[0] + weights[1] else 2
         has_car = rng.random() < 0.32
         seats = (3 if rng.random() < 0.6 else 2) if has_car else 0
-        lat, lon = offset(*CENTER, east, north)
+        lat, lon = offset(*center, east, north)
         depart = int(round(base_t + rng.gauss(0, 14) + (20 if di == 2 else 0)))
         nm = f"{FIRST[counter % len(FIRST)]} {rng.choice(LAST)}."
         m = Member(tenant_id=tenant.id, name=nm, email=f"member{counter}@example.edu", area=area, home_lat=lat,
@@ -123,3 +123,13 @@ def create_synthetic_tenant(db: Session, name: str = "Synthetic University (demo
         m.state = MemberState.REGISTERED
     db.flush()
     return tenant
+
+
+NEIGHBOUR_NAME = "Synthetic Tech Park (demo)"
+
+
+def create_neighbour_tenant(db: Session, of: Tenant) -> Tenant:
+    """A second SYNTHETIC community a few km away whose neighbourhoods partly overlap the first one, so the
+    expansion engine has another community to find shared corridors with."""
+    lat, lon = offset(of.center_lat, of.center_lon, 3.2, 2.4)
+    return create_synthetic_tenant(db, name=NEIGHBOUR_NAME, seed=23, center=(lat, lon), kind="corporate", seed_active=12)
