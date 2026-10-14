@@ -1,0 +1,41 @@
+# Render Blueprint: render.com -> New -> Blueprint -> pick this repo.
+# Creates two Docker services on the free plan. The database is Supabase (not created here).
+services:
+  # FastAPI backend: backend/Dockerfile
+  - type: web
+    name: fellaride-api
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /health
+    envVars:
+      - key: FELLARIDE_DATABASE_URL         # your Supabase link from .env (postgresql+psycopg://...?sslmode=require)
+        sync: false
+      - key: FELLARIDE_CORS_ORIGINS         # the web app's URL, e.g. https://fellaride-web.onrender.com
+        sync: false
+      - key: FELLARIDE_DEMO_ADMIN_PASSWORD  # password for admin@demo.fellaride.app
+        sync: false
+      - key: FELLARIDE_JWT_SECRET
+        generateValue: true
+      - key: FELLARIDE_ADMIN_KEY
+        generateValue: true
+      - key: FELLARIDE_SEED_DEMO_DAYS       # demo data for judges (only added if the database is empty); 0 = off
+        value: "14"
+      - key: FELLARIDE_DEMO_LOGIN
+        value: "true"
+      - key: FELLARIDE_DEFAULT_JOIN_CODE
+        value: DEMO2026
+
+  # React web app: frontend/Dockerfile (Vite build served by nginx)
+  - type: web
+    name: fellaride-web
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./frontend/Dockerfile
+    dockerContext: ./frontend
+    envVars:
+      - key: VITE_API_URL                   # the API's URL, e.g. https://fellaride-api.onrender.com (no trailing slash)
+        sync: false

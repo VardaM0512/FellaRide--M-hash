@@ -1,0 +1,20 @@
+server {
+    listen ${PORT};
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # hashed build files can be cached for a long time
+    location /assets/ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # the service worker and the page itself must always be fresh
+    location = /sw.js { add_header Cache-Control "no-cache"; }
+    location = /index.html { add_header Cache-Control "no-cache"; }
+
+    # single-page app: every unknown path loads index.html (React Router handles it)
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
