@@ -7,7 +7,9 @@ import MapView, { type MapPoint } from '../components/MapView';
 import PlaceField from '../components/PlaceField';
 import { Avatar, ErrorNote, Icon, Skeleton } from '../components/ui';
 import { useAnnounce } from '../lib/announce';
+import { savePickup, savedPickup } from '../lib/pickup';
 import { nameOf } from '../lib/places';
+import { usePrefs } from '../lib/prefs';
 import { useSession } from '../lib/session';
 import { GENDER_LABEL, SEAT_STATUS, ratingText, whenLabel } from '../lib/tripFormat';
 
@@ -18,7 +20,10 @@ export default function Find() {
   const navigate = useNavigate();
   const announce = useAnnounce();
   const step = useTripStep();
-  const [from, setFrom] = useState<Place | null>(null);
+  const { motionReduced } = usePrefs();
+  const uid = session?.user.id;
+  const [from, setFrom] = useState<Place | null>(() => savedPickup(uid));
+  const [punched, setPunched] = useState<number | null>(null);
   const [to, setTo] = useState<Place | null>(null);
   const [active, setActive] = useState<'from' | 'to'>('from');
   const [when, setWhen] = useState('');
@@ -39,16 +44,23 @@ export default function Find() {
     try {
       const r = await searchTrips({ from, to, when: when ? new Date(when).toISOString() : null });
       setResults(r);
+      savePickup(uid, from);
       announce(`${r.length} ride${r.length === 1 ? '' : 's'} going your way.`);
     } catch (err) { setError(err); } finally { setBusy(false); }
   }
 
+  /** Ask for a seat: the ticket is punched and its stub tears off while the request goes out. */
   async function ask(trip: Trip) {
+    setPunched(trip.id);
+    navigator.vibrate?.(12);
     try {
-      await step.mutateAsync({ tripId: trip.id, path: 'request', body: { pickup_name: from?.name ?? '', pickup_lat: from?.lat, pickup_lon: from?.lon } });
+      await Promise.all([
+        step.mutateAsync({ tripId: trip.id, path: 'request', body: { pickup_name: from?.name ?? '', pickup_lat: from?.lat, pickup_lon: from?.lon } }),
+        new Promise((r) => setTimeout(r, motionReduced ? 0 : 1100)),
+      ]);
       announce(`Seat requested from ${trip.driver.name}.`);
       navigate(`/trip/${trip.id}`, { state: { pickup: from } });
-    } catch (err) { setError(err); }
+    } catch (err) { setPunched(null); setError(err); }
   }
 
   const points: MapPoint[] = [
@@ -88,7 +100,8 @@ export default function Find() {
           </div>
           {shown.length === 0 && <p className="note note-info">No rides pass near you yet. Try without a drop point or a time, or check back soon. You’ll get an alert when someone posts a ride near you.</p>}
           {shown.map((t) => (
-            <article key={t.id} className="card ride-card ticket">
+            <article key={t.id} className={`card ride-card ticket${punched === t.id ? ' punched' : ''}`}>
+              {punched === t.id && <span className="punch" aria-hidden="true"><span className="stamp">Seat requested</span></span>}
               <div className="person">
                 <Avatar name={t.driver.name} driver />
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -98,7 +111,7 @@ export default function Find() {
                 <span className="ride-time">{whenLabel(t.depart_at).replace(/^Today /, '')}</span>
               </div>
               <p className="ride-route">
-                <span className="dot" />{t.from.name.split(',')[0]}<span className="dash" /><span className="sq" />{t.to.name.split(',')[0]}
+                <span className="dot" />{t.from.name.split(',')[0]}<span className="route-line" /><span className="sq" />{t.to.name.split(',')[0]}
               </p>
               <p className="small muted">
                 Passes {t.pickup_km! < 0.2 ? 'right by' : `${t.pickup_km} km from`} your pickup

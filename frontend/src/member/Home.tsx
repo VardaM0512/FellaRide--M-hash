@@ -3,8 +3,10 @@
 import { Link } from 'react-router-dom';
 import { useImpact } from '../api/community';
 import { useMyTrips, type Trip } from '../api/trips';
+import DepartureBoard from '../components/DepartureBoard';
 import { Avatar, ErrorNote, Icon, Skeleton } from '../components/ui';
 import { firstName } from '../lib/format';
+import { savedPickup } from '../lib/pickup';
 import { useSession } from '../lib/session';
 import { ChallengeCard } from './Community';
 import { GENDER_LABEL, SEAT_STATUS, TRIP_STATUS, ratingText, whenLabel } from '../lib/tripFormat';
@@ -43,6 +45,19 @@ export function TripRow({ trip, note }: { trip: Trip; note?: string }) {
         {note && <><br /><span className="small" style={{ fontWeight: 700 }}>{note}</span></>}
       </span>
       <span className="chev" aria-hidden="true">›</span>
+    </Link>
+  );
+}
+
+/** A seat you asked for: the torn-off stub of the ticket, kept here until the driver answers. */
+function Stub({ trip }: { trip: Trip }) {
+  const d = new Date(trip.depart_at);
+  return (
+    <Link to={`/trip/${trip.id}`} className="stub">
+      <span className="stub-time">{d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}</span>
+      <span className="stub-route">{trip.from.name.split(',')[0]} → {trip.to.name.split(',')[0]}</span>
+      <span className="small">{trip.driver.name.split(' ')[0]} · {whenLabel(trip.depart_at).split(' ')[0]}</span>
+      <span className="stub-state"><span className="live-dot" /> Waiting for {trip.driver.name.split(' ')[0]}</span>
     </Link>
   );
 }
@@ -87,6 +102,7 @@ export default function Home() {
             </Link>
             <RideWeek trips={[...history, ...(active ? [active] : [])]} streak={impact.data?.streak_weeks ?? 0} />
           </div>
+          <DepartureBoard from={savedPickup(session?.user.id)} />
           <div className="tiles">
             <Link to="/offer" className="tile drive">
               <span className="go" aria-hidden="true">→</span>
@@ -112,8 +128,8 @@ export default function Home() {
 
       {pending.length > 0 && (
         <section aria-labelledby="pending-h">
-          <h3 id="pending-h" className="section-head">Waiting for the driver</h3>
-          <div className="list">{pending.map((t) => <TripRow key={t.id} trip={t} note="Request sent" />)}</div>
+          <h3 id="pending-h" className="section-head">Your stubs</h3>
+          <div className="stubs">{pending.map((t) => <Stub key={t.id} trip={t} />)}</div>
         </section>
       )}
 

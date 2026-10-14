@@ -74,12 +74,12 @@ function HeroArt() {
     <svg className="hero-art" viewBox="0 0 440 320" preserveAspectRatio="xMidYMin meet" aria-hidden="true">
       <defs>
         <linearGradient id="hero-fade" x1="0" y1="0" x2="0" y2="1">
-          <stop className="fade-stop" offset="0.52" stopColor="#0D0E10" stopOpacity="0" />
-          <stop className="fade-stop" offset="0.82" stopColor="#0D0E10" stopOpacity="1" />
+          <stop className="fade-stop" offset="0.52" stopColor="#101418" stopOpacity="0" />
+          <stop className="fade-stop" offset="0.82" stopColor="#101418" stopOpacity="1" />
         </linearGradient>
         <radialGradient id="hero-glow" cx="0.5" cy="0.5" r="0.5">
-          <stop className="glow-stop" offset="0" stopColor="#D4F53C" stopOpacity="0.35" />
-          <stop className="glow-stop" offset="1" stopColor="#D4F53C" stopOpacity="0" />
+          <stop className="glow-stop" offset="0" stopColor="#C9973A" stopOpacity="0.35" />
+          <stop className="glow-stop" offset="1" stopColor="#C9973A" stopOpacity="0" />
         </radialGradient>
       </defs>
       {MEMBERS.map((m, i) => (

@@ -67,6 +67,21 @@ function useQuietLocation() {
 
 // Tabs sit side by side; moving between them slides sideways. Everything else (a ride, a form) rises from below.
 const TAB_ORDER = ['/', '/community', '/alerts', '/me'];
+const SHORTCUT = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘\\' : 'Ctrl+\\';
+
+/** Laptops: the sidebar folds down to a rail of stations. Remembered on this device; Cmd/Ctrl + \\ toggles it. */
+function useCollapsed() {
+  const [collapsed, setCollapsed] = useState(() => { try { return localStorage.getItem('fr.sidebar') === 'rail'; } catch { return false; } });
+  useEffect(() => { try { localStorage.setItem('fr.sidebar', collapsed ? 'rail' : 'open'); } catch { /* not remembered */ } }, [collapsed]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === '\\') { e.preventDefault(); setCollapsed((c) => !c); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+  return [collapsed, setCollapsed] as const;
+}
 
 export default function AppLayout() {
   const { session } = useSession();
@@ -75,6 +90,7 @@ export default function AppLayout() {
   const outlet = useOutlet();
   const { banner, dismiss, unread } = useAlertBanner();
   useQuietLocation();
+  const [collapsed, setCollapsed] = useCollapsed();
   const mainRef = useRef<HTMLElement>(null);
   const [scrolled, setScrolled] = useState(false);
   const prevTab = useRef(TAB_ORDER.indexOf(pathname));
@@ -84,43 +100,55 @@ export default function AppLayout() {
   useEffect(() => { mainRef.current?.scrollTo({ top: 0 }); setScrolled(false); }, [pathname]);
 
   const tabs = [
-    { to: '/', label: 'Home', icon: Icon.today, end: true },
-    { to: '/community', label: 'Community', icon: Icon.people },
-    { to: '/alerts', label: 'Alerts', icon: Icon.bell, badge: unread },
-    { to: '/me', label: 'You', icon: Icon.me },
+    { to: '/', label: 'Home', icon: Icon.today, end: true, note: 'Departures and your week' },
+    { to: '/community', label: 'Community', icon: Icon.people, note: 'Board, challenge, leaders' },
+    { to: '/alerts', label: 'Alerts', icon: Icon.bell, badge: unread, note: unread ? `${unread} new` : 'All caught up' },
+    { to: '/me', label: 'You', icon: Icon.me, note: 'Your pass and impact' },
   ];
   const activeTab = tabs.find((t) => (t.end ? pathname === t.to : pathname.startsWith(t.to)))?.to;
   const title = pathname.startsWith('/trip/') ? 'Your ride' : TITLES[pathname] || 'FellaRide';
   const slug = pathname === '/' ? 'home' : pathname.split('/')[1];
   const me = session?.profile;
   return (
-    <div className="app">
+    <div className={`app${collapsed ? ' rail' : ''}`}>
       <a href="#main" className="skip-link" onClick={(e) => { e.preventDefault(); mainRef.current?.focus(); }}>Skip to content</a>
       {/* laptops and large tablets: a sidebar replaces the bottom tabs (CSS decides which one shows) */}
-      <aside className="sidebar">
-        <Link to="/" className="brand" aria-label="FellaRide home"><Logo /><strong>FellaRide</strong></Link>
-        <p className="side-community small">{session?.tenant.name}{session?.tenant.synthetic && <span className="demo-dot"> · Demo</span>}</p>
+      <aside className="sidebar" id="sidebar" aria-label="Sidebar">
+        <div className="side-top">
+          <Link to="/" className="brand" aria-label="FellaRide home"><Logo size={34} /><strong>FellaRide</strong></Link>
+          <button type="button" className="side-toggle" onClick={() => setCollapsed((c) => !c)} aria-expanded={!collapsed} aria-controls="sidebar"
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} data-tip={`${collapsed ? 'Expand' : 'Collapse'} · ${SHORTCUT}`}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+              <rect x="3" y="4" width="18" height="16" rx="3" /><path d="M9.5 4v16" /><path d={collapsed ? 'M14 10l2 2-2 2' : 'M16 10l-2 2 2 2'} strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        </div>
+        <p className="line-name"><span className="line-swatch" aria-hidden="true" /><span>{session?.tenant.name.replace(/\s*\(demo\)$/i, '')}</span>
+          {session?.tenant.synthetic && <span className="line-tag">Demo</span>}</p>
         <nav aria-label="Main">
-          <ul className="side-nav">
+          <ol className="metro">
             {tabs.map((tab) => (
               <li key={tab.to}>
-                <NavLink to={tab.to} end={tab.end}>
-                  {activeTab === tab.to && <motion.span layoutId="side-indicator" className="side-indicator" transition={{ type: 'spring', stiffness: 500, damping: 40 }} />}
-                  <span className="side-icon">{tab.icon}</span><span>{tab.label}</span>
+                <NavLink to={tab.to} end={tab.end} className="station" data-tip={tab.label} aria-label={collapsed ? tab.label : undefined}>
+                  <span className="station-dot">
+                    {activeTab === tab.to && <motion.span layoutId="station-current" className="station-current" transition={{ type: 'spring', stiffness: 420, damping: 34 }} />}
+                    <span className="station-icon">{tab.icon}</span>
+                  </span>
+                  <span className="station-text"><strong>{tab.label}</strong><span>{tab.note}</span></span>
                   {!!tab.badge && <span className="side-badge">{tab.badge > 9 ? '9+' : tab.badge}</span>}
                 </NavLink>
               </li>
             ))}
-          </ul>
+          </ol>
         </nav>
-        <div className="side-actions">
-          <Link to="/offer" className="btn btn-drive btn-block">{Icon.car} Offer a ride</Link>
-          <Link to="/find" className="btn btn-quiet btn-block">{Icon.search} Find a ride</Link>
+        <div className="side-go">
+          <Link to="/find" className="go-ride" data-tip="Find a ride" aria-label="Find a ride">{Icon.search}<span>Find</span></Link>
+          <Link to="/offer" className="go-drive" data-tip="Offer a ride" aria-label="Offer a ride">{Icon.car}<span>Offer</span></Link>
         </div>
         {me && (
-          <Link to="/me" className="side-me">
+          <Link to="/me" className="side-me" data-tip={me.name}>
             <Avatar name={me.name} />
-            <span><strong>{me.name}</strong><br /><span className="small muted">{ratingText(me.rating)}</span></span>
+            <span className="side-me-text"><strong>{me.name}</strong><span>{ratingText(me.rating)}</span></span>
           </Link>
         )}
       </aside>

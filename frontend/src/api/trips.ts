@@ -83,6 +83,15 @@ export const searchTrips = (p: { from: Place; to: Place | null; when: string | n
   return request<Trip[]>(`/trips/search?${q}`);
 };
 
+/** Home's departure board: upcoming rides passing near your usual pickup, refreshed every 30 seconds. */
+export const useDepartures = (from: Place | null) => {
+  const uid = useUserKey();
+  return useQuery({
+    queryKey: ['trips', 'board', uid, from?.lat, from?.lon], enabled: !!from,
+    queryFn: () => searchTrips({ from: from!, to: null, when: null }), refetchInterval: 30_000,
+  });
+};
+
 /** Any change to a trip: refresh trips, alerts and chat right away instead of waiting for the next poll. */
 function useTripAction<V, R = unknown>(fn: (v: V) => Promise<R>) {
   const qc = useQueryClient();
