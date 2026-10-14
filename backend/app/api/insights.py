@@ -1,6 +1,12 @@
 """Metrics, funnel, growth graph, model weights, day clock and synthetic simulation."""
-from fastapi import APIRouter, Depends, HTTPException
+import hmac
+from datetime import datetime, timedelta, timezone
+
+from fastapi import APIRouter, Depends, Header, HTTPException
+from sqlalchemy import select
 from sqlalchemy.orm import Session
+
+from ..config import get_settings
 
 from ..db import get_db
 from ..engine import daycycle, metrics, scorer
@@ -48,6 +54,36 @@ def close_day(tenant: Tenant = Depends(get_tenant), db: Session = Depends(get_db
     snap = daycycle.close_day(db, tenant)
     db.commit()
     return {"closed_day": snap["day"], "metrics": snap, "current_day": tenant.current_day}
+
+
+def _local_date(dt: datetime, tz: timezone):
+    if dt.tzinfo is None:   # SQLite returns naive UTC
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(tz).date()
+
+
+@router.post("/cron/close-days", summary="Daily job (X-Admin-Key): close the day for every real community")
+def cron_close_days(db: Session = Depends(get_db), x_admin_key: str | None = Header(default=None)):
+    """Call once a day (GitHub Actions / cron-job.org). Brings each real community's engine day up to the number
+    of calendar days since it was created, so a missed or repeated call is harmless. Synthetic demos are skipped."""
+    key = get_settings().admin_key
+    if not key:
+        raise HTTPException(503, "Set FELLARIDE_ADMIN_KEY on the server to use the daily job.")
+    if not (x_admin_key and hmac.compare_digest(x_admin_key, key)):
+        raise HTTPException(401, "This action needs a valid X-Admin-Key header.")
+    tz = timezone(timedelta(minutes=get_settings().utc_offset_min))
+    today = datetime.now(tz).date()
+    closed = {}
+    for tenant in db.scalars(select(Tenant).where(Tenant.is_synthetic.is_(False))):
+        target = (today - _local_date(tenant.created_at, tz)).days
+        n = 0
+        while tenant.current_day < target and n < 31:   # catch up at most a month per call
+            daycycle.close_day(db, tenant)
+            n += 1
+        db.commit()
+        if n:
+            closed[tenant.id] = {"closed": n, "current_day": tenant.current_day}
+    return {"date": today.isoformat(), "closed": closed}
 
 
 @router.post("/tenants/{tenant_id}/simulate", summary="Admin: replay N days on a SYNTHETIC community")

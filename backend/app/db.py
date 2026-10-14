@@ -12,7 +12,11 @@ class Base(DeclarativeBase):
 
 
 def make_engine(url: str):
-    kwargs = {"connect_args": {"check_same_thread": False}} if url.startswith("sqlite") else {"pool_pre_ping": True}
+    if url.startswith("sqlite"):
+        kwargs = {"connect_args": {"check_same_thread": False}}
+    else:
+        # small pool: the Supabase free session pooler allows only a few connections per project
+        kwargs = {"pool_pre_ping": True, "pool_size": 5, "max_overflow": 5, "pool_recycle": 1800}
     return create_engine(url, **kwargs)
 
 

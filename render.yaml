@@ -1,0 +1,31 @@
+# Render Blueprint: Dashboard -> New -> Blueprint -> pick this repo. Creates the FellaRide API (Docker, free plan).
+# The database is Supabase: paste its Session pooler URI into FELLARIDE_DATABASE_URL when Render asks.
+services:
+  - type: web
+    name: fellaride-api
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: FELLARIDE_DATABASE_URL       # Supabase -> Connect -> Session pooler URI (port 5432), pasted as is
+        sync: false
+      - key: FELLARIDE_CORS_ORIGINS       # your Vercel URL, e.g. https://fellaride.vercel.app (no trailing slash)
+        sync: false
+      - key: FELLARIDE_CORS_ORIGIN_REGEX  # optional: allow Vercel preview URLs
+        value: https://.*\.vercel\.app
+      - key: FELLARIDE_JWT_SECRET
+        generateValue: true
+      - key: FELLARIDE_ADMIN_KEY          # also used by the daily GitHub Action (.github/workflows/daily-close.yml)
+        generateValue: true
+      - key: FELLARIDE_SEED_DEMO_DAYS     # 0 = real data only; 14 = add the synthetic demo community for judges
+        value: "0"
+      - key: FELLARIDE_DEMO_LOGIN
+        value: "false"
+      - key: FELLARIDE_DEMO_ADMIN_PASSWORD
+        generateValue: true
+      - key: FELLARIDE_UTC_OFFSET_MIN     # 330 = India time, used to decide when a new day starts
+        value: "330"
