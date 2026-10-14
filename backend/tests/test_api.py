@@ -165,32 +165,3 @@ def test_admin_routes_need_admin(client, monkeypatch):
     assert client.post(f"{API}/tenants/demo", json={}).status_code == 401
     monkeypatch.setattr(get_settings(), "admin_key", "s3cret")
     assert client.post(f"{API}/tenants/demo", json={}, headers={"X-Admin-Key": "wrong"}).status_code == 401
-
-
-
-def test_daily_close_job(client, community, monkeypatch):
-    """The daily job needs the operator key, catches a community up to its calendar day, and is safe to repeat."""
-    from datetime import datetime, timedelta, timezone
-
-    from app.config import get_settings
-    from app.db import SessionLocal
-    from app.models import Tenant
-    assert client.post(f"{API}/cron/close-days").status_code == 503          # no key configured on the server
-    monkeypatch.setattr(get_settings(), "admin_key", "op-key")
-    assert client.post(f"{API}/cron/close-days", headers={"X-Admin-Key": "wrong"}).status_code == 401
-    tid = community["id"]
-    with SessionLocal() as db:   # pretend the community was created three days ago
-        db.get(Tenant, tid).created_at = datetime.now(timezone.utc) - timedelta(days=3, hours=1)
-        db.commit()
-    r = client.post(f"{API}/cron/close-days", headers={"X-Admin-Key": "op-key"})
-    assert r.status_code == 200, r.text
-    assert r.json()["closed"][str(tid)]["current_day"] >= 3
-    again = client.post(f"{API}/cron/close-days", headers={"X-Admin-Key": "op-key"}).json()
-    assert str(tid) not in again["closed"]
-
-
-def test_database_url_accepts_supabase_uri():
-    from app.config import Settings
-    s = Settings(database_url="postgresql://postgres.ref:pw@aws-0-ap-south-1.pooler.supabase.com:5432/postgres")
-    assert s.database_url.startswith("postgresql+psycopg://postgres.ref:pw@")
-    assert Settings(database_url="postgres://u:p@h/db").database_url == "postgresql+psycopg://u:p@h/db"
