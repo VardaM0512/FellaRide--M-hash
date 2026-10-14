@@ -22,6 +22,13 @@ class Settings(BaseSettings):
     max_detour_km: float = 3.0
     max_time_gap_min: int = 30
     learning_rate: float = 0.35
+    # Online learning slows down as a model sees more outcomes: lr / (1 + updates / this). 0 = constant rate.
+    learning_rate_decay_updates: int = 1000
+    # Real communities: share of the daily nudge budget sent to random eligible members instead of the top
+    # scores, so the model also sees outcomes for people it would not pick (the training data stays unbiased).
+    explore_share: float = 0.15
+    # Real communities: move the engine's day clock forward with the calendar (one day per local day).
+    auto_advance_days: bool = True
     # Optional key that protects the /simulate and /admin endpoints. Empty = open (local dev only).
     admin_key: str = ""
     # On first start with an empty database, create a synthetic demo community and replay N days,

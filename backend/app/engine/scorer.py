@@ -2,7 +2,8 @@
 
 Four roles: driver, rider, connector, referrer. Weights start from the trained model
 (models/scorer.pkl, produced by ml/train_scorer.py) and are then updated online per tenant
-after every observed outcome:   w <- w + lr * sample_weight * (y - p) * x
+after every observed outcome:   w <- w + lr_t * sample_weight * (y - p) * x,
+with lr_t = lr / (1 + updates / learning_rate_decay_updates).
 """
 import math
 import pickle
@@ -73,7 +74,11 @@ def score_member(weights: dict[str, ModelState], x: list[float]) -> dict[str, fl
 
 
 def learn(state: ModelState, x: list[float], y: int, lr: float, sample_weight: float = 1.0) -> float:
-    """One online logistic-regression step. Returns the prediction before the update."""
+    """One online logistic-regression step. Returns the prediction before the update.
+    The step shrinks as the model sees more outcomes, so a few noisy answers late on can't swing the weights."""
+    decay = get_settings().learning_rate_decay_updates
+    if decay > 0:
+        lr /= 1 + state.updates / decay
     w = list(state.weights)
     p = predict(w, x)
     g = (y - p) * sample_weight

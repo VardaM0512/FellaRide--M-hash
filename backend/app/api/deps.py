@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..db import get_db
+from ..engine import daycycle
 from ..models import Member, Tenant
 
 
@@ -13,6 +14,8 @@ def get_tenant(tenant_id: int, db: Session = Depends(get_db)) -> Tenant:
     t = db.get(Tenant, tenant_id)
     if not t:
         raise HTTPException(404, f"Community {tenant_id} not found.")
+    if daycycle.catch_up(db, t):
+        db.commit()
     return t
 
 

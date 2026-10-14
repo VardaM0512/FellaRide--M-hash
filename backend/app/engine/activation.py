@@ -15,7 +15,7 @@ Every hook is idempotent, does nothing for organiser accounts, stamps engine dat
 (never wall-clock time), and runs through `safe()` so a bridge failure never breaks the ride action.
 """
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from sqlalchemy import exists, func, select
 from sqlalchemy.orm import Session
@@ -33,11 +33,7 @@ log = logging.getLogger("fellaride.activation")
 DEST_MERGE_KM = 1.5          # a new drop point this close to a known destination reuses it
 COMMUTE_RADIUS_KM = 50       # rides further than this from the community centre still count, but aren't a commute
 DEFAULT_DEPART_MIN = 480     # 08:00 until a real ride says otherwise
-try:
-    from zoneinfo import ZoneInfo
-    LOCAL_TZ = ZoneInfo("Asia/Kolkata")
-except Exception:            # hosts without a time-zone database (India has no daylight saving)
-    LOCAL_TZ = timezone(timedelta(hours=5, minutes=30))
+LOCAL_TZ = daycycle.LOCAL_TZ
 
 
 def safe(db: Session, fn, *args) -> None:
@@ -66,7 +62,10 @@ def local_minutes(dt: datetime) -> int:
 def _tenant_for(db: Session, user: User | None) -> Tenant | None:
     if user is None or user.role != "member":
         return None
-    return db.get(Tenant, user.tenant_id)
+    tenant = db.get(Tenant, user.tenant_id)
+    if tenant is not None:
+        daycycle.catch_up(db, tenant)
+    return tenant
 
 
 def _event(db: Session, tenant: Tenant, member: Member | None, type_: str, **payload) -> None:
