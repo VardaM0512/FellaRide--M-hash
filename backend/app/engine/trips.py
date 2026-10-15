@@ -29,6 +29,7 @@ from . import activation, pricing
 from .geo import haversine_km
 
 NEAR_KM = 2.5            # "near you" alerts and search radius around the route
+MIN_TRIP_KM = 0.5        # start and destination closer than this are the same place, not a ride
 EARLY_GRACE_MIN = 5
 STALE_AFTER = timedelta(hours=3)   # an open trip this long past its time is expired
 CANCEL_CUTOFF = timedelta(minutes=10)   # after a seat is confirmed, either side may cancel until this long before departure
@@ -523,6 +524,11 @@ def post_trip(db: Session, user: User, body) -> tuple[Trip, int]:
     depart = utc(body.depart_at)
     if depart < now() - timedelta(minutes=10) or depart > now() + timedelta(days=7):
         raise TripError(422, "Pick a leaving time between now and the next 7 days.")
+    straight_km = haversine_km(body.from_lat, body.from_lon, body.to_lat, body.to_lon)
+    if straight_km < MIN_TRIP_KM:
+        raise TripError(422, "Your start and destination are the same place. Pick where you're going.")
+    if body.route_km < straight_km * 0.95:   # no road is shorter than the straight line (5% for rounding)
+        raise TripError(422, "That route is shorter than the distance between your start and destination. Pick the route again.")
     route = [[round(a, 5), round(b, 5)] for a, b in body.route] or [[body.from_lat, body.from_lon], [body.to_lat, body.to_lon]]
     t = Trip(tenant_id=user.tenant_id, driver_id=user.id, from_name=body.from_name.strip(), from_lat=body.from_lat,
              from_lon=body.from_lon, to_name=body.to_name.strip(), to_lat=body.to_lat, to_lon=body.to_lon,

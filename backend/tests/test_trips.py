@@ -222,6 +222,23 @@ def test_organiser_broadcast_and_overview(client, community):
     assert {"trips", "riders_carried", "reports", "open_reports_by_category"} <= set(ov)
 
 
+def test_a_ride_must_go_somewhere(client):
+    _, dh, _ = signup(client, "Zara Z.")
+    when = (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat()
+    base = {"from_name": "Lakeview", "from_lat": 12.97, "from_lon": 77.55, "depart_at": when, "route_min": 25,
+            "seats": 2, "licence_confirmed": True, "cost_share_confirmed": True}
+    # same start and destination: a 0 km route
+    same = client.post(f"{API}/trips", headers=dh, json={**base, "to_name": "Lakeview", "to_lat": 12.97, "to_lon": 77.55,
+                                                          "route": [[12.97, 77.55], [12.97, 77.55]], "route_km": 0, "route_min": 0})
+    assert same.status_code == 422 and "same place" in same.json()["detail"]
+    # different places, but a route claimed shorter than the straight line between them (~10.8 km)
+    short = client.post(f"{API}/trips", headers=dh, json={**base, "to_name": "Tech Park", "to_lat": 12.97, "to_lon": 77.65,
+                                                           "route": ROUTE, "route_km": 0})
+    assert short.status_code == 422
+    real = post_trip(client, dh)   # neither left a ride behind, so a real one can still be posted
+    client.post(f"{API}/trips/{real['id']}/cancel", headers=dh)   # keep it out of later tests' searches
+
+
 def test_car_details_model_first_plate_after_approval(client):
     d, dh, _ = signup(client, "Kabir C.", "male")
     r1, h1, _ = signup(client, "Nisha C.")

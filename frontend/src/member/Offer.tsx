@@ -7,13 +7,14 @@ import MapView, { type MapPoint } from '../components/MapView';
 import PlaceField from '../components/PlaceField';
 import { ErrorNote, Icon } from '../components/ui';
 import { useAnnounce } from '../lib/announce';
-import { nameOf, routesBetween, type RouteOption } from '../lib/places';
+import { haversineKm, nameOf, routesBetween, type RouteOption } from '../lib/places';
 import { useSession } from '../lib/session';
 import { GENDER_LABEL, ratingText, soon, toLocalInput } from '../lib/tripFormat';
 import { defaultPerKm, maxPerKm, perSeat, rate, rupees } from '../lib/pricing';
 
 type Price = 'free' | 'half' | 'suggested';
 const MAX_ROUTE_KM = 2000, MAX_ROUTE_MIN = 3000;   // the same limits the server checks
+const MIN_TRIP_KM = 0.5;                           // trips.MIN_TRIP_KM: closer than this is the same place
 const UPI_RE = /^[A-Za-z0-9._-]{2,256}@[A-Za-z][A-Za-z0-9]{1,63}$/;
 
 export default function Offer() {
@@ -49,6 +50,7 @@ export default function Offer() {
   async function showRoutes(e: FormEvent) {
     e.preventDefault();
     if (!from || !to) return setError(new Error('Set where you start and where you’re going.'));
+    if (haversineKm(from, to) < MIN_TRIP_KM) return setError(new Error('Your start and destination are the same place. Pick where you’re going.'));
     if (!carReady) return setError(new Error('Add your car’s model, colour and number, so riders can find you.'));
     if (!licence) return setError(new Error('Tick the box to confirm you have a valid driving licence.'));
     if (!costShare) return setError(new Error('Tick the box to confirm you’re sharing costs, not running a taxi.'));
