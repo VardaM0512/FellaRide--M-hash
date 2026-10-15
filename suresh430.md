@@ -557,3 +557,5 @@ Deliberate trade-offs for a hackathon demo on free hosting. They are documented 
 | 3c | Network Expansion Engine, community board (challenge, posts, leaderboard, badges), real-data model training, transit-pass redesign | done |
 | 3d | Docker for the API and web app, Render Blueprint with Supabase ([DEPLOY.md](DEPLOY.md)) | done |
 | 4 | Bug Bounty hardening, security pass, public deployment, pitch | in progress |
+
+Use DEMO2026 for community code
