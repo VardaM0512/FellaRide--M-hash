@@ -253,6 +253,12 @@ class BroadcastIn(BaseModel):
     body: str = Field("", max_length=400)
 
 
+class PricingIn(BaseModel):
+    suggested_per_km: float = Field(gt=0, le=100, description="Rs per km a rider travels, before the no-profit cap")
+    car_cost_per_km: float = Field(gt=0, le=100, description="What a car costs to run per km (fuel and wear): the no-profit cap")
+    min_contribution: int = Field(ge=0, le=1000, description="Rs per seat, unless that would break the cap on a short trip")
+
+
 # ---------- community board ----------
 class PostIn(BaseModel):
     kind: Literal["update", "ask", "offer", "thanks", "tip"] = "update"

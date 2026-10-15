@@ -5,6 +5,7 @@ import { DemoTag, ErrorNote, Skeleton } from '../components/ui';
 import { useSession } from '../lib/session';
 import CommunityMap from './CommunityMap';
 import MemberAppPanel from './MemberAppPanel';
+import PricingPanel from './PricingPanel';
 import { ClockTag, CorridorsPanel, FunnelPanel, MemberSheet, ModelPanel, Numbers, NudgesPanel, OperatorPanel } from './Panels';
 
 export default function Dashboard() {
@@ -47,6 +48,8 @@ export default function Dashboard() {
       </div>
 
       <MemberAppPanel />
+
+      <PricingPanel />
 
       <OperatorPanel clock={c?.clock} />
 

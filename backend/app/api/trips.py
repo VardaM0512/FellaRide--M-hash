@@ -10,12 +10,12 @@ from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from ..auth import Actor, admin_actor, auth_rate_limit, current_actor
+from ..auth import Actor, admin_actor, auth_rate_limit, current_actor, member_actor
 from ..db import get_db
-from ..engine import activation, referrals
+from ..engine import activation, pricing, referrals
 from ..engine import trips as T
-from ..models import Alert, Member, Profile, Rating, Referral, Report, Tenant, Trip, TripSeat, User
-from ..schemas import BroadcastIn, InviteIn, LocationIn, MessageIn, ProfileIn, RatingIn, ReadIn, ReportIn, SeatRequestIn, TrackIn, TripIn, UpiIn
+from ..models import Alert, CommunityPricing, Member, Profile, Rating, Referral, Report, Tenant, Trip, TripSeat, User
+from ..schemas import BroadcastIn, InviteIn, LocationIn, MessageIn, PricingIn, ProfileIn, RatingIn, ReadIn, ReportIn, SeatRequestIn, TrackIn, TripIn, UpiIn
 from .account import checked_mobile, email_verified, mobile_owner, verification_required
 
 router = APIRouter(tags=["trips"])
@@ -289,6 +289,38 @@ def broadcast(tenant_id: int, body: BroadcastIn, db: Session = Depends(get_db), 
         T.alert(db, uid, "broadcast", body.title, body.body)
     db.commit()
     return {"sent": len(ids)}
+
+
+def _rates_out(r: pricing.Rates) -> dict:
+    return {"suggested_per_km": r.suggested_per_km, "car_cost_per_km": r.car_cost_per_km, "min_contribution": r.min_contribution}
+
+
+def _pricing_out(db: Session, tenant_id: int, admin: bool) -> dict:
+    history = T.pricing_history(db, tenant_id)
+    out = {**_rates_out(T.current_rates(db, tenant_id)), "defaults": _rates_out(pricing.DEFAULT),
+           "changed_at": history[-1].created_at if history else None}
+    if admin:
+        names = {u.id: u.email for u in db.scalars(select(User).where(User.id.in_({h.changed_by for h in history if h.changed_by})))}
+        out["history"] = [{**_rates_out(T.rates_from(h)), "changed_at": h.created_at, "changed_by": names.get(h.changed_by)}
+                          for h in reversed(history[-10:])]
+    return out
+
+
+@router.get("/tenants/{tenant_id}/pricing", summary="The community's cost-sharing rates (organisers also see the changes)")
+def get_pricing(tenant_id: int, db: Session = Depends(get_db), actor: Actor = Depends(member_actor)):
+    return _pricing_out(db, tenant_id, actor.is_admin)
+
+
+@router.put("/tenants/{tenant_id}/pricing", summary="Organiser: change the cost-sharing rates for rides posted from now on")
+def set_pricing(tenant_id: int, body: PricingIn, db: Session = Depends(get_db), actor: Actor | None = Depends(admin_actor)):
+    if body.suggested_per_km > body.car_cost_per_km:
+        raise HTTPException(422, "The suggested rate can't be more than what the car costs to run per km. "
+                                 "FellaRide is cost-sharing only.")
+    db.add(CommunityPricing(tenant_id=tenant_id, suggested_per_km=round(body.suggested_per_km, 2),
+                            car_cost_per_km=round(body.car_cost_per_km, 2), min_contribution=body.min_contribution,
+                            changed_by=actor.user.id if actor else None))
+    db.commit()
+    return _pricing_out(db, tenant_id, True)
 
 
 @router.get("/tenants/{tenant_id}/trips-overview", summary="Organiser: rides, ratings and reports in the member app")

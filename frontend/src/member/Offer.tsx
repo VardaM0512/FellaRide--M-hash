@@ -2,7 +2,7 @@
 // Posting tells everyone whose last location is near the route.
 import { useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { usePostTrip, type Place } from '../api/trips';
+import { usePostTrip, useRates, type Place } from '../api/trips';
 import MapView, { type MapPoint } from '../components/MapView';
 import PlaceField from '../components/PlaceField';
 import { ErrorNote, Icon } from '../components/ui';
@@ -10,7 +10,7 @@ import { useAnnounce } from '../lib/announce';
 import { haversineKm, nameOf, routesBetween, type RouteOption } from '../lib/places';
 import { useSession } from '../lib/session';
 import { GENDER_LABEL, ratingText, soon, toLocalInput } from '../lib/tripFormat';
-import { defaultPerKm, maxPerKm, perSeat, rate, rupees } from '../lib/pricing';
+import { DEFAULT_RATES, defaultPerKm, maxPerKm, perSeat, rate, rupees } from '../lib/pricing';
 
 type Price = 'free' | 'half' | 'suggested';
 const MAX_ROUTE_KM = 2000, MAX_ROUTE_MIN = 3000;   // the same limits the server checks
@@ -37,7 +37,8 @@ export default function Offer() {
   const [price, setPrice] = useState<Price>('suggested');
   const [upi, setUpi] = useState(p?.upi_id ?? '');
   const [costShare, setCostShare] = useState(false);   // ticked every time, like the licence
-  const perKm = price === 'free' ? 0 : price === 'half' ? Math.round((defaultPerKm(seats) / 2) * 100) / 100 : defaultPerKm(seats);
+  const rates = useRates().data ?? DEFAULT_RATES;   // the organiser's rates for this community
+  const perKm = price === 'free' ? 0 : price === 'half' ? Math.round((defaultPerKm(seats, rates) / 2) * 100) / 100 : defaultPerKm(seats, rates);
   const upiOk = !upi.trim() || UPI_RE.test(upi.trim());
   const carReady = car.model.trim().length >= 2 && car.colour.trim().length >= 2 && car.plate.trim().length >= 4;
 
@@ -76,7 +77,7 @@ export default function Offer() {
         from_name: from.name, from_lat: from.lat, from_lon: from.lon, to_name: to.name, to_lat: to.lat, to_lon: to.lon,
         depart_at: new Date(when).toISOString(), route: r.coords, route_km: r.km, route_min: r.min, seats,
         car: { model: car.model.trim(), colour: car.colour.trim(), plate: car.plate.trim() }, licence_confirmed: licence,
-        cost_share_confirmed: costShare, price_per_km: perKm, ...(upi.trim() ? { upi_id: upi.trim() } : {}),
+        cost_share_confirmed: costShare, price_per_km: price === 'suggested' ? undefined : perKm, ...(upi.trim() ? { upi_id: upi.trim() } : {}),
       });
       // remember the car for next time (the server tidies the number plate)
       if (session && p) signIn({ ...session, profile: { ...p, car: trip.car, upi_id: upi.trim() || p.upi_id || null } });
@@ -118,7 +119,7 @@ export default function Offer() {
           <dt>Seats</dt><dd>{seats}</dd>
           <dt>Car</dt><dd>{car.colour} {car.model} · {car.plate.toUpperCase()}</dd>
           <dt>Licence</dt><dd>Confirmed by you</dd>
-          <dt>Contribution</dt><dd>{perKm === 0 ? 'Free ride' : `${rupees(perSeat(perKm, routes[chosen].km, routes[chosen].km, seats))} a seat for the whole way · ${rate(perKm)}`}</dd>
+          <dt>Contribution</dt><dd>{perKm === 0 ? 'Free ride' : `${rupees(perSeat(perKm, routes[chosen].km, routes[chosen].km, seats, rates))} a seat for the whole way · ${rate(perKm)}`}</dd>
           <dt>Trip cost</dt><dd>About {rupees(Math.round(9 * routes[chosen].km))} to drive. Riders together never pay more.</dd>
         </dl>
         <ErrorNote error={error} />
@@ -184,9 +185,9 @@ export default function Offer() {
         </div>
         <p className="price-line">
           {perKm === 0 ? <><strong>Free ride.</strong> Riders pay nothing.</>
-            : <><strong>{rate(perKm)}</strong> · a 10 km rider pays about <strong>{rupees(perSeat(perKm, 10, 10, seats))}</strong>, minimum ₹30</>}
+            : <><strong>{rate(perKm)}</strong> · a 10 km rider pays about <strong>{rupees(perSeat(perKm, 10, 10, seats, rates))}</strong>, minimum {rupees(rates.min_contribution)}</>}
         </p>
-        <p className="tiny muted">Most you could ask with {seats} seat{seats === 1 ? '' : 's'}: {rate(maxPerKm(seats))}, so a full car only covers the fuel and wear.</p>
+        <p className="tiny muted">Most you could ask with {seats} seat{seats === 1 ? '' : 's'}: {rate(maxPerKm(seats, rates))}, so a full car only covers the fuel and wear.</p>
         {perKm > 0 && (
           <label className="field">UPI ID (optional)
             <input value={upi} onChange={(e) => setUpi(e.target.value)} placeholder="yourname@okaxis" autoComplete="off" autoCapitalize="none" spellCheck={false}

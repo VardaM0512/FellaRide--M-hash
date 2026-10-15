@@ -427,6 +427,42 @@ def test_cost_sharing_contribution_cap_and_settling_up(client):
     client.post(f"{API}/trips/{tid}/cancel", headers=dh)
 
 
+def test_organiser_changes_rates_for_new_rides_only(client, community):
+    org = community["admin_headers"]
+    tid_ = community["id"]
+    _, dh1, _ = signup(client, "Rates D1.", join_code=community["join_code"])
+    _, dh2, _ = signup(client, "Rates D2.", join_code=community["join_code"])
+    _, rh, _ = signup(client, "Rates R.", join_code=community["join_code"])
+    _, oh, _ = signup(client, "Elsewhere O.")   # the open community
+
+    # members see the defaults; only the organiser sees who changed what
+    seen = client.get(f"{API}/tenants/{tid_}/pricing", headers=rh).json()
+    assert (seen["suggested_per_km"], seen["car_cost_per_km"], seen["min_contribution"]) == (3, 9, 30) and "history" not in seen
+    assert client.get(f"{API}/tenants/{tid_}/pricing", headers=oh).status_code == 404
+    old = post_trip(client, dh1)
+    assert old["price"]["per_km"] == 3 and old["price"]["max_per_km"] == 4.5
+
+    # only the organiser can change them, and the suggested rate can't beat the car's cost
+    new = {"suggested_per_km": 4, "car_cost_per_km": 12, "min_contribution": 50}
+    assert client.put(f"{API}/tenants/{tid_}/pricing", headers=rh, json=new).status_code == 403
+    assert client.put(f"{API}/tenants/{tid_}/pricing", headers=org, json={**new, "suggested_per_km": 13}).status_code == 422
+    assert client.put(f"{API}/tenants/{tid_}/pricing", headers=org, json={**new, "car_cost_per_km": 0}).status_code == 422
+    put = client.put(f"{API}/tenants/{tid_}/pricing", headers=org, json=new)
+    assert put.status_code == 200, put.text
+    assert put.json()["car_cost_per_km"] == 12 and put.json()["history"][0]["changed_by"].startswith("admin")
+    assert client.get(f"{API}/tenants/{tid_}/pricing", headers=rh).json()["min_contribution"] == 50
+
+    # a ride posted now uses the new rates: cap 12 / 2 seats = Rs 6/km, Rs 50 minimum
+    t = post_trip(client, dh2)
+    assert t["price"]["per_km"] == 4 and t["price"]["max_per_km"] == 6 and t["price"]["trip_cost"] == round(12 * 11.2)
+    found = client.get(f"{API}/trips/search", headers=rh, params={"from_lat": 12.97, "from_lon": 77.60, "to_lat": 12.97, "to_lon": 77.65}).json()
+    assert next(x for x in found if x["id"] == t["id"])["per_seat"] == 50
+    assert next(x for x in found if x["id"] == old["id"])["per_seat"] == 30   # the ride posted before keeps its price
+    assert client.get(f"{API}/trips/{old['id']}", headers=dh1).json()["price"]["max_per_km"] == 4.5
+    client.post(f"{API}/trips/{old['id']}/cancel", headers=dh1)
+    client.post(f"{API}/trips/{t['id']}/cancel", headers=dh2)
+
+
 def test_parallel_approvals_of_the_last_seat_approve_exactly_one(client):
     """Regression (e2e G46): on SQLite the FOR UPDATE row lock is a no-op, and 5 parallel approvals of a 1-seat
     ride all succeeded. lock_trip now takes SQLite's write lock up front, so they queue like on Postgres."""

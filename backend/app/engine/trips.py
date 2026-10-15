@@ -24,7 +24,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session
 
-from ..models import (Alert, Car, DriverLicence, PayoutInfo, Profile, Rating, Report, SeatPayment, Trip, TripLocation, TripMessage,
+from ..models import (Alert, Car, CommunityPricing, DriverLicence, PayoutInfo, Profile, Rating, Report, SeatPayment, Trip, TripLocation, TripMessage,
                       TripPrice, TripSeat, TripSeatCount, TripSeatDrop, User)
 from . import activation, pricing
 from .geo import ROUTE_NEAR_KM, haversine_km, match_on_route, nearest_on_route
@@ -323,13 +323,36 @@ def _seats_left(db: Session, trip: Trip) -> int:
 
 
 # ---------- cost sharing (see pricing.py) ----------
+def pricing_history(db: Session, tenant_id: int) -> list[CommunityPricing]:
+    """The organiser's rate changes, oldest first."""
+    return _cached(db, ("pricing", tenant_id), lambda: list(db.scalars(
+        select(CommunityPricing).where(CommunityPricing.tenant_id == tenant_id).order_by(CommunityPricing.id))))
+
+
+def rates_from(row: CommunityPricing | None) -> pricing.Rates:
+    if not row:
+        return pricing.DEFAULT
+    return pricing.Rates(row.suggested_per_km, row.car_cost_per_km, row.min_contribution)
+
+
+def current_rates(db: Session, tenant_id: int) -> pricing.Rates:
+    history = pricing_history(db, tenant_id)
+    return rates_from(history[-1] if history else None)
+
+
+def rates_of(db: Session, trip: Trip) -> pricing.Rates:
+    """The community's rates when this ride was posted: changing them later doesn't reprice it."""
+    posted = utc(trip.created_at) or now()
+    return rates_from(next((r for r in reversed(pricing_history(db, trip.tenant_id)) if utc(r.created_at) <= posted), None))
+
+
 def per_km_of(db: Session, trip: Trip) -> float:
     row = _cached(db, ("price", trip.id), lambda: db.get(TripPrice, trip.id))
-    return row.per_km if row else pricing.default_per_km(trip.seats_total)
+    return row.per_km if row else pricing.default_per_km(trip.seats_total, rates_of(db, trip))
 
 
 def contribution(db: Session, trip: Trip, rider_km: float, count: int = 1) -> int:
-    return count * pricing.per_seat(per_km_of(db, trip), rider_km, trip.route_km, trip.seats_total)
+    return count * pricing.per_seat(per_km_of(db, trip), rider_km, trip.route_km, trip.seats_total, rates_of(db, trip))
 
 
 def drop_of(db: Session, s: TripSeat) -> TripSeatDrop | None:
@@ -369,10 +392,10 @@ def save_upi(db: Session, user_id: int, upi_id: str) -> None:
 
 
 def price_out(db: Session, trip: Trip) -> dict:
-    r = per_km_of(db, trip)
-    return {"per_km": r, "free": r <= 0, "suggested_per_km": pricing.default_per_km(trip.seats_total),
-            "max_per_km": pricing.max_per_km(trip.seats_total), "trip_cost": pricing.trip_cost(trip.route_km),
-            "full_route_per_seat": contribution(db, trip, trip.route_km)}
+    r, rates = per_km_of(db, trip), rates_of(db, trip)
+    return {"per_km": r, "free": r <= 0, "suggested_per_km": pricing.default_per_km(trip.seats_total, rates),
+            "max_per_km": pricing.max_per_km(trip.seats_total, rates), "trip_cost": pricing.trip_cost(trip.route_km, rates),
+            "min_contribution": rates.min_contribution, "full_route_per_seat": contribution(db, trip, trip.route_km)}
 
 
 def in_group(db: Session, trip: Trip, user_id: int) -> bool:
@@ -503,7 +526,8 @@ def post_trip(db: Session, user: User, body) -> tuple[Trip, int]:
         raise TripError(422, "Tick the box to confirm you have a valid driving licence.")
     if not body.cost_share_confirmed:
         raise TripError(422, "Tick the box to confirm you're sharing costs, not running a taxi.")
-    cap = pricing.max_per_km(body.seats)
+    rates = current_rates(db, user.tenant_id)
+    cap = pricing.max_per_km(body.seats, rates)
     if body.price_per_km is not None and body.price_per_km > cap + 1e-9:
         raise TripError(422, f"That's more than the trip costs. FellaRide is cost-sharing only: with {body.seats} "
                              f"seat{'s' if body.seats != 1 else ''}, at most Rs {cap:g} per km.")
@@ -526,7 +550,7 @@ def post_trip(db: Session, user: User, body) -> tuple[Trip, int]:
     if body.upi_id:
         save_upi(db, user.id, body.upi_id)
     db.flush()
-    if body.price_per_km is not None and abs(body.price_per_km - pricing.default_per_km(body.seats)) > 1e-9:
+    if body.price_per_km is not None and abs(body.price_per_km - pricing.default_per_km(body.seats, rates_of(db, t))) > 1e-9:
         db.add(TripPrice(trip_id=t.id, per_km=round(body.price_per_km, 2)))
     lic = db.get(DriverLicence, user.id) or DriverLicence(user_id=user.id)
     lic.confirmed_at = now()
