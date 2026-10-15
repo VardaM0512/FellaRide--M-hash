@@ -2,8 +2,9 @@
 code, the driver marks who got in, and the ride ends from either side.
 
 Rules worth knowing:
-- Proximity: a trip is "near you" when your last known location is within NEAR_KM of any point on its route.
-  Searches match riders whose pickup AND drop are both close to the route, in that order.
+- Proximity: a trip is "near you" when your last known location is within NEAR_KM of its route (the road, not
+  just its stored points). Searches match riders whose pickup AND drop are both close to the route, in that order;
+  a route that passes an area twice is matched on whichever pass keeps that order (see geo.match_on_route).
 - Ending: the driver can end the whole trip at any time. A rider ends only their own part; if they were the
   last rider still on board (or still to be picked up), the whole trip ends with them.
 - Leaving early: if the driver set off more than EARLY_GRACE_MIN before the planned time and an approved rider
@@ -26,9 +27,9 @@ from sqlalchemy.orm import Session
 from ..models import (Alert, Car, DriverLicence, PayoutInfo, Profile, Rating, Report, SeatPayment, Trip, TripLocation, TripMessage,
                       TripPrice, TripSeat, TripSeatCount, TripSeatDrop, User)
 from . import activation, pricing
-from .geo import haversine_km
+from .geo import ROUTE_NEAR_KM, haversine_km, match_on_route, nearest_on_route
 
-NEAR_KM = 2.5            # "near you" alerts and search radius around the route
+NEAR_KM = ROUTE_NEAR_KM  # "near you" alerts and search radius around the route
 MIN_TRIP_KM = 0.5        # start and destination closer than this are the same place, not a ride
 EARLY_GRACE_MIN = 5
 STALE_AFTER = timedelta(hours=3)   # an open trip this long past its time is expired
@@ -462,16 +463,6 @@ def history_for(db: Session, user_id: int, limit: int = 20) -> list[Trip]:
         Trip.status.in_(("completed", "cancelled", "expired"))).order_by(Trip.depart_at.desc()).limit(limit)))
 
 
-# ---------- geometry ----------
-def nearest_on_route(route: list, lat: float, lon: float) -> tuple[float, int]:
-    best, idx = float("inf"), 0
-    for i, (plat, plon) in enumerate(route):
-        d = haversine_km(lat, lon, plat, plon)
-        if d < best:
-            best, idx = d, i
-    return best, idx
-
-
 def search(db: Session, tenant_id: int, user_id: int, from_lat: float, from_lon: float,
            to_lat: float | None, to_lon: float | None, when: datetime | None) -> list[dict]:
     expire_stale(db)
@@ -490,19 +481,14 @@ def search(db: Session, tenant_id: int, user_id: int, from_lat: float, from_lon:
 def _search_rows(db: Session, stmt, user_id: int, from_lat: float, from_lon: float, to_lat: float | None, to_lon: float | None) -> list[dict]:
     out = []
     for t in db.scalars(stmt.order_by(Trip.depart_at).limit(300)):
-        pickup_km, pi = nearest_on_route(t.route, from_lat, from_lon)
-        if pickup_km > NEAR_KM:
+        m = match_on_route(t.route, from_lat, from_lon, to_lat, to_lon, NEAR_KM)
+        if not m:
             continue
-        drop_km = None
-        if to_lat is not None and to_lon is not None:
-            drop_km, di = nearest_on_route(t.route, to_lat, to_lon)
-            if drop_km > NEAR_KM or di < pi:
-                continue
         if seats_left(db, t) == 0 and not seat_of(db, t, user_id):
             continue
         rider_km = pricing.along_route_km(t.route, from_lat, from_lon, to_lat, to_lon)
-        out.append(trip_out(db, t, user_id, {"pickup_km": round(pickup_km, 2),
-                                              "drop_km": round(drop_km, 2) if drop_km is not None else None,
+        out.append(trip_out(db, t, user_id, {"pickup_km": round(m.pickup_km, 2),
+                                              "drop_km": round(m.drop_km, 2) if m.drop_km is not None else None,
                                               "per_seat": contribution(db, t, rider_km), "rider_km": round(rider_km, 1)}))
     return out
 
@@ -682,6 +668,7 @@ def request_seat(db: Session, trip: Trip, user: User, pickup_name: str, pickup_l
     p = profile(db, user.id)
     has_drop = drop_lat is not None and drop_lon is not None
     if has_drop and pickup_lat is not None and pickup_lon is not None and \
+            not match_on_route(trip.route, pickup_lat, pickup_lon, drop_lat, drop_lon, NEAR_KM) and \
             nearest_on_route(trip.route, drop_lat, drop_lon)[1] < nearest_on_route(trip.route, pickup_lat, pickup_lon)[1]:
         raise TripError(422, "Your drop comes before your pickup on this ride's route.")
     if trip.driver_id == user.id:

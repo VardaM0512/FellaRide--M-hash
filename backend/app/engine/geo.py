@@ -1,5 +1,6 @@
 """Small geometry helpers. Plain lat/lon maths, no PostGIS needed."""
 import math
+from typing import NamedTuple
 
 EARTH_KM = 6371.0088
 
@@ -23,6 +24,73 @@ def vector_km(lat1: float, lon1: float, lat2: float, lon2: float) -> tuple[float
     north = (lat2 - lat1) * 110.574
     east = (lon2 - lon1) * 111.320 * math.cos(math.radians((lat1 + lat2) / 2))
     return east, north
+
+
+ROUTE_NEAR_KM = 2.5   # a pickup or drop this close to a driver's route counts as "on the way"
+
+
+class RouteMatch(NamedTuple):
+    pickup_km: float          # how far the pickup is from the route
+    pickup_pos: float         # where along the route (km from its start) the rider gets in
+    drop_km: float | None     # the same for the drop (None when no drop was given)
+    drop_pos: float           # no drop: the end of the route
+
+
+def _on_route(route: list, lat: float, lon: float) -> list[tuple[float, float]]:
+    """For each leg of the route, (distance from the point to that leg, km along the route at the closest spot).
+    Measured to the road between stored points, not just the points: a long straight stretch is stored as two
+    points kilometres apart, and a pickup in the middle of it is still right on the route."""
+    out, along = [], 0.0
+    for (alat, alon), (blat, blon) in zip(route, route[1:]):
+        ex, ny = vector_km(alat, alon, blat, blon)
+        px, py = vector_km(alat, alon, lat, lon)
+        seg2 = ex * ex + ny * ny
+        t = 0.0 if seg2 < 1e-12 else max(0.0, min(1.0, (px * ex + py * ny) / seg2))
+        seg = math.sqrt(seg2)
+        out.append((math.hypot(px - t * ex, py - t * ny), along + t * seg))
+        along += seg
+    return out
+
+
+def route_length_km(route: list) -> float:
+    return sum(math.hypot(*vector_km(*a, *b)) for a, b in zip(route, route[1:]))
+
+
+def nearest_on_route(route: list, lat: float, lon: float) -> tuple[float, float]:
+    """(km from the route, km along the route) at the route's closest approach to the point."""
+    legs = _on_route(route, lat, lon)
+    if not legs:
+        return (haversine_km(lat, lon, *route[0]), 0.0) if route else (float("inf"), 0.0)
+    return min(legs)
+
+
+def _passes(legs: list[tuple[float, float]], near_km: float) -> list[tuple[float, float]]:
+    """Each time the route comes within near_km of the point (a run of legs in range), its closest spot there.
+    A straight road passes a point once; a loop or an out-and-back can pass it twice."""
+    out, cur = [], None
+    for leg in legs:
+        if leg[0] <= near_km:
+            cur = leg if cur is None or leg < cur else cur
+        elif cur is not None:
+            out.append(cur)
+            cur = None
+    return out + ([cur] if cur is not None else [])
+
+
+def match_on_route(route: list, from_lat: float, from_lon: float, to_lat: float | None = None,
+                   to_lon: float | None = None, near_km: float = ROUTE_NEAR_KM) -> RouteMatch | None:
+    """Where a rider gets in and out of a driver's route: both within near_km of it, the drop after the pickup.
+    A route can pass the same area twice (a loop), so every pass is considered, not just the closest one:
+    among the pairs of passes in the right order, the one closest to the rider wins. None: not on the way."""
+    p = _passes(_on_route(route, from_lat, from_lon), near_km)
+    if not p:
+        return None
+    if to_lat is None or to_lon is None:
+        km, pos = min(p)
+        return RouteMatch(km, pos, None, route_length_km(route))
+    d = _passes(_on_route(route, to_lat, to_lon), near_km)
+    pairs = [(pk + dk, pk, pp, dk, dp) for pk, pp in p for dk, dp in d if pp <= dp + 1e-9]
+    return RouteMatch(*min(pairs)[1:]) if pairs else None
 
 
 def direction_overlap(driver_home, rider_home, dest) -> float:
