@@ -147,7 +147,9 @@ def _seed_demo(db: Session, tenant: Tenant) -> None:
 # ---------- public impact (the welcome page) ----------
 TREE_KG_PER_YEAR = 21.0       # CO2 a mature tree absorbs in a year (a common estimate)
 _impact_cache: dict = {"at": 0.0, "data": None}
-IMPACT_CACHE_SECONDS = 60     # a public, unauthenticated endpoint: recompute at most once a minute
+IMPACT_CACHE_SECONDS = 300    # public and network-wide: a few seconds of database work, so recompute every 5 minutes
+OVERVIEW_CACHE_SECONDS = 30   # community numbers shared by every member of a community
+_overview_cache: dict[int, tuple[float, dict]] = {}
 
 
 @router.get("/impact", summary="Public: what the whole FellaRide network has done so far (for the welcome page)")
@@ -155,6 +157,11 @@ def impact(db: Session = Depends(get_db)):
     import time
     if _impact_cache["data"] is not None and time.monotonic() - _impact_cache["at"] < IMPACT_CACHE_SECONDS:
         return _impact_cache["data"]
+    return compute_impact(db)
+
+
+def compute_impact(db: Session) -> dict:
+    import time
     tenants = list(db.scalars(select(Tenant)))
     rides = [(t, r) for t in tenants for r in _rides(db, t)]
     seat_km = sum(r.km * len(r.riders) for _, r in rides)
@@ -180,12 +187,17 @@ def impact(db: Session = Depends(get_db)):
 
 @router.get("/overview", summary="Community numbers, this week's challenge and the top riders")
 def overview(actor: Actor = Depends(current_actor), db: Session = Depends(get_db)):
+    import time
     tenant = _tenant(db, actor)
+    top = leaderboard(period="week", metric="rides", actor=actor, db=db)["rows"][:3]   # marks "me", so per viewer
+    hit = _overview_cache.get(tenant.id)
+    if hit and time.monotonic() - hit[0] < OVERVIEW_CACHE_SECONDS:
+        return {**hit[1], "top": top}
     rides = _rides(db, tenant)
     week = [r for r in rides if r.day >= _week_start(tenant)]
     joined = db.scalar(select(func.count(Member.id)).where(Member.tenant_id == tenant.id, Member.state != MemberState.DISCOVERED))
     connected = db.scalar(select(func.count(Connection.id)).where(Connection.tenant_id == tenant.id, Connection.kind == "co_ride"))
-    return {
+    out = {
         "community": tenant.name,
         "stats": {
             "members": joined, "rides_total": len(rides), "rides_week": len(week),
@@ -195,8 +207,9 @@ def overview(actor: Actor = Depends(current_actor), db: Session = Depends(get_db
             "connections": connected,
         },
         "challenge": _challenge(db, tenant),
-        "top": leaderboard(period="week", metric="rides", actor=actor, db=db)["rows"][:3],
     }
+    _overview_cache[tenant.id] = (time.monotonic(), out)
+    return {**out, "top": top}
 
 
 def _post_out(db: Session, p: CommunityPost, me: int) -> dict:

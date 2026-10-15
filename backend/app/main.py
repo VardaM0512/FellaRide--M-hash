@@ -4,6 +4,7 @@ Run locally:  uvicorn app.main:app --reload     (from the backend/ folder)
 Docs:         http://localhost:8000/docs
 """
 import logging
+import threading
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -58,7 +59,19 @@ async def lifespan(_: FastAPI):
     with SessionLocal() as db:   # people who sign up without a join code land here
         public_tenant(db)
         db.commit()
+    if not get_settings().database_url.startswith("sqlite"):
+        # work out the welcome page's impact numbers now, off the startup path, so the first visitor doesn't wait
+        threading.Thread(target=_warm_impact, daemon=True).start()
     yield
+
+
+def _warm_impact() -> None:
+    from .api.social import compute_impact
+    try:
+        with SessionLocal() as db:
+            compute_impact(db)
+    except Exception as e:   # only a speed-up; the endpoint computes on demand anyway
+        log.warning("Could not pre-compute the impact numbers: %s", e)
 
 
 app = FastAPI(
