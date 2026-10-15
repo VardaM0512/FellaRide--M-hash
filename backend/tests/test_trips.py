@@ -24,7 +24,7 @@ def post_trip(client, h, minutes=30, seats=2):
     when = (datetime.now(timezone.utc) + timedelta(minutes=minutes)).isoformat()
     r = client.post(f"{API}/trips", headers=h, json={
         "from_name": "Lakeview", "from_lat": 12.97, "from_lon": 77.55, "to_name": "Tech Park", "to_lat": 12.97, "to_lon": 77.65,
-        "depart_at": when, "route": ROUTE, "route_km": 11.2, "route_min": 25, "seats": seats, "licence_confirmed": True})
+        "depart_at": when, "route": ROUTE, "route_km": 11.2, "route_min": 25, "seats": seats, "licence_confirmed": True, "cost_share_confirmed": True})
     assert r.status_code == 201, r.text
     return r.json()
 
@@ -164,7 +164,7 @@ def test_full_car_cancel_and_isolation(client, community):
     # the car is full: the other request is declined automatically, and a second post is blocked
     assert client.get(f"{API}/trips/{trip['id']}", headers=h2).json()["my_seat"]["status"] == "rejected"
     again = {"from_name": "A", "from_lat": 12.97, "from_lon": 77.55, "to_name": "B", "to_lat": 12.97, "to_lon": 77.65,
-             "depart_at": datetime.now(timezone.utc).isoformat(), "route": ROUTE, "route_km": 11, "route_min": 25, "seats": 1, "licence_confirmed": True}
+             "depart_at": datetime.now(timezone.utc).isoformat(), "route": ROUTE, "route_km": 11, "route_min": 25, "seats": 1, "licence_confirmed": True, "cost_share_confirmed": True}
     assert client.post(f"{API}/trips", headers=dh, json=again).status_code == 409
     # cancelling after approving someone costs the driver
     assert client.post(f"{API}/trips/{trip['id']}/cancel", headers=dh).json()["status"] == "cancelled"
@@ -192,7 +192,7 @@ def test_car_details_model_first_plate_after_approval(client):
     when = (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat()
     bad = client.post(f"{API}/trips", headers=dh, json={
         "from_name": "Lakeview", "from_lat": 12.97, "from_lon": 77.55, "to_name": "Tech Park", "to_lat": 12.97, "to_lon": 77.65,
-        "depart_at": when, "route": ROUTE, "route_km": 11.2, "route_min": 25, "seats": 2, "licence_confirmed": True,
+        "depart_at": when, "route": ROUTE, "route_km": 11.2, "route_min": 25, "seats": 2, "licence_confirmed": True, "cost_share_confirmed": True,
         "car": {"model": "Maruti Swift", "colour": "White", "plate": "<script>"}})
     assert bad.status_code == 422
     no_licence = client.post(f"{API}/trips", headers=dh, json={
@@ -202,7 +202,7 @@ def test_car_details_model_first_plate_after_approval(client):
     assert no_licence.status_code == 422 and "driving licence" in no_licence.json()["detail"]
     r = client.post(f"{API}/trips", headers=dh, json={
         "from_name": "Lakeview", "from_lat": 12.97, "from_lon": 77.55, "to_name": "Tech Park", "to_lat": 12.97, "to_lon": 77.65,
-        "depart_at": when, "route": ROUTE, "route_km": 11.2, "route_min": 25, "seats": 2, "licence_confirmed": True,
+        "depart_at": when, "route": ROUTE, "route_km": 11.2, "route_min": 25, "seats": 2, "licence_confirmed": True, "cost_share_confirmed": True,
         "car": {"model": "Maruti Swift", "colour": "White", "plate": "ka-01-ab-1234"}})
     assert r.status_code == 201, r.text
     trip = r.json()
@@ -226,3 +226,149 @@ def test_car_details_model_first_plate_after_approval(client):
     me = client.post(f"{API}/auth/login", json={"email": client.get(f"{API}/auth/me", headers=dh).json()["user"]["email"],
                                                 "password": "trip-pass-123"}).json()
     assert me["profile"]["car"]["plate"] == "KA 01 AB 1234"
+
+
+def test_one_rider_books_several_seats(client):
+    d, dh, _ = signup(client, "Kiran D.")
+    a, ha, _ = signup(client, "Group A.")
+    b, hb, _ = signup(client, "Solo B.")
+    c, hc, _ = signup(client, "Pair C.")
+    tid = post_trip(client, dh, seats=3)["id"]
+    req = lambda h, n: client.post(f"{API}/trips/{tid}/request", headers=h, json={"seats": n})
+
+    assert req(ha, 4).status_code == 422                       # more than the car holds
+    t = req(ha, 1).json()
+    assert t["my_seat"]["seats"] == 1
+    t = req(ha, 2).json()                                      # changing a waiting request
+    assert t["my_seat"]["seats"] == 2 and t["seats_left"] == 3  # nothing is held until the driver approves
+    assert any("now needs 2 seats" in x["title"] for x in alerts(client, dh))
+    req(hb, 1)
+    req(hc, 2)
+    riders = {r["person"]["id"]: r for r in client.get(f"{API}/trips/{tid}", headers=dh).json()["riders"]}
+    assert riders[a]["seats"] == 2 and riders[b]["seats"] == 1 and riders[c]["seats"] == 2
+
+    # approving the pair leaves 1 seat: the other pair no longer fits and is declined, the solo rider still fits
+    t = client.post(f"{API}/trips/{tid}/seats/{riders[a]['seat_id']}/approve", headers=dh).json()
+    assert t["seats_left"] == 1
+    status = {r["person"]["id"]: r["status"] for r in t["riders"]}
+    assert status[a] == "approved" and status[b] == "pending" and status[c] == "rejected"
+    assert any(x["kind"] == "declined" and "Only 1 seat left" in x["title"] for x in alerts(client, hc))
+    assert any("2 seats held for you" in x["body"] for x in alerts(client, ha))
+
+    # a new request bigger than what's left is refused up front
+    e, he, _ = signup(client, "Late E.")
+    r = req(he, 2)
+    assert r.status_code == 409 and "Only 1 seat left" in r.json()["detail"]
+
+    # withdrawing the pair frees both seats
+    client.post(f"{API}/trips/{tid}/withdraw", headers=ha)
+    assert client.get(f"{API}/trips/{tid}", headers=dh).json()["seats_left"] == 3
+    client.post(f"{API}/trips/{tid}/cancel", headers=dh)
+
+
+def _approved_pair(client, minutes):
+    d, dh, _ = signup(client, "Cut D.")
+    r, rh, _ = signup(client, "Cut R.")
+    tid = post_trip(client, dh, minutes=minutes)["id"]
+    client.post(f"{API}/trips/{tid}/request", headers=rh, json={"pickup_name": "Lake Rd", "pickup_lat": 12.97, "pickup_lon": 77.60})
+    seat = client.get(f"{API}/trips/{tid}", headers=dh).json()["riders"][0]["seat_id"]
+    client.post(f"{API}/trips/{tid}/seats/{seat}/approve", headers=dh)
+    return tid, dh, rh
+
+
+def test_cancelling_closes_ten_minutes_before_departure(client):
+    # well before: both sides may still back out
+    tid, dh, rh = _approved_pair(client, minutes=40)
+    t = client.get(f"{API}/trips/{tid}", headers=rh).json()
+    assert t["can_cancel"] is True and t["cancel_until"]
+    assert client.post(f"{API}/trips/{tid}/withdraw", headers=rh).status_code == 200
+    assert any("cancelled their 1 seat" in a["body"] for a in alerts(client, dh))
+    client.post(f"{API}/trips/{tid}/cancel", headers=dh)
+
+    # 8 minutes before: a confirmed seat can no longer be cancelled by either side
+    tid, dh, rh = _approved_pair(client, minutes=8)
+    assert client.get(f"{API}/trips/{tid}", headers=rh).json()["can_cancel"] is False
+    assert client.get(f"{API}/trips/{tid}", headers=dh).json()["can_cancel"] is False
+    r = client.post(f"{API}/trips/{tid}/withdraw", headers=rh)
+    assert r.status_code == 409 and "10 minutes before" in r.json()["detail"]
+    r = client.post(f"{API}/trips/{tid}/cancel", headers=dh)
+    assert r.status_code == 409 and "10 minutes before" in r.json()["detail"]
+    # ...but a request nobody approved yet can always be withdrawn
+    _, ph, _ = signup(client, "Late P.")
+    client.post(f"{API}/trips/{tid}/request", headers=ph, json={})
+    assert client.get(f"{API}/trips/{tid}", headers=ph).json()["can_cancel"] is True
+    assert client.post(f"{API}/trips/{tid}/withdraw", headers=ph).status_code == 200
+    client.post(f"{API}/trips/{tid}/start", headers=dh)
+    client.post(f"{API}/trips/{tid}/end", headers=dh)
+
+
+def test_live_tracking_during_the_ride(client):
+    tid, dh, rh = _approved_pair(client, minutes=20)          # inside the 30-minute window
+    _, oh, _ = signup(client, "Outsider O.")
+    assert client.post(f"{API}/trips/{tid}/location", headers=oh, json={"lat": 12.97, "lon": 77.56}).status_code == 403
+
+    # the driver shares; the waiting rider sees the car, how far it is from their pickup, and roughly when
+    assert client.post(f"{API}/trips/{tid}/location", headers=dh, json={"lat": 12.97, "lon": 77.56, "speed_kmh": 30}).status_code == 200
+    t = client.get(f"{API}/trips/{tid}", headers=rh).json()
+    assert t["tracking"] is True
+    car = next(x for x in t["live"] if x["role"] == "driver")
+    assert 4 < car["km_to_you"] < 5 and car["eta_min"] >= 1
+    # the rider shares too; the driver sees them, an outsider sees nothing
+    client.post(f"{API}/trips/{tid}/location", headers=rh, json={"lat": 12.97, "lon": 77.60})
+    assert [x["role"] for x in client.get(f"{API}/trips/{tid}", headers=dh).json()["live"]] == ["rider"]
+
+    # positions are deleted when the ride ends
+    client.post(f"{API}/trips/{tid}/start", headers=dh)
+    client.post(f"{API}/trips/{tid}/end", headers=dh)
+    assert client.get(f"{API}/trips/{tid}", headers=rh).json()["live"] == []
+    assert client.post(f"{API}/trips/{tid}/location", headers=dh, json={"lat": 12.97, "lon": 77.6}).status_code == 409
+
+    # too early: tracking starts 30 minutes before departure
+    tid2, dh2, _ = _approved_pair(client, minutes=90)
+    assert client.post(f"{API}/trips/{tid2}/location", headers=dh2, json={"lat": 12.97, "lon": 77.56}).status_code == 409
+    client.post(f"{API}/trips/{tid2}/cancel", headers=dh2)
+
+
+def test_cost_sharing_contribution_cap_and_settling_up(client):
+    from app.engine import pricing
+    d, dh, _ = signup(client, "Price D.")
+    r, rh, _ = signup(client, "Price R.")
+    when = (datetime.now(timezone.utc) + timedelta(minutes=45)).isoformat()
+    base = {"from_name": "Lakeview", "from_lat": 12.97, "from_lon": 77.55, "to_name": "Tech Park", "to_lat": 12.97, "to_lon": 77.65,
+            "depart_at": when, "route": ROUTE, "route_km": 11.2, "route_min": 25, "seats": 2, "licence_confirmed": True}
+
+    # the cost-sharing promise is required, and the rate can't go above the trip's cost
+    assert client.post(f"{API}/trips", headers=dh, json=base).status_code == 422
+    over = client.post(f"{API}/trips", headers=dh, json={**base, "cost_share_confirmed": True, "price_per_km": 5})
+    assert over.status_code == 422 and "cost-sharing only" in over.json()["detail"]   # cap with 2 seats: Rs 4.5/km
+
+    t = client.post(f"{API}/trips", headers=dh, json={**base, "cost_share_confirmed": True, "upi_id": "price.d@okaxis"}).json()
+    tid = t["id"]
+    assert t["price"]["per_km"] == 3 and t["price"]["max_per_km"] == 4.5 and t["price"]["trip_cost"] == round(9 * 11.2)
+    assert t["price"]["full_route_per_seat"] * t["seats_total"] <= t["price"]["trip_cost"]   # never a profit
+
+    # search prices the rider's own stretch: 77.60 -> 77.65 is about 5.4 km, so the Rs 30 minimum applies
+    found = client.get(f"{API}/trips/search", headers=rh, params={"from_lat": 12.97, "from_lon": 77.60, "to_lat": 12.97, "to_lon": 77.65}).json()
+    me = next(x for x in found if x["id"] == tid)
+    assert 5 < me["rider_km"] < 6 and me["per_seat"] == 30
+
+    client.post(f"{API}/trips/{tid}/request", headers=rh, json={"pickup_name": "Mid", "pickup_lat": 12.97, "pickup_lon": 77.60, "seats": 2})
+    seat = client.get(f"{API}/trips/{tid}", headers=dh).json()["riders"][0]
+    assert seat["contribution"] == 60                      # 2 seats x Rs 30
+    client.post(f"{API}/trips/{tid}/seats/{seat['seat_id']}/approve", headers=dh)
+    assert any("Your contribution is Rs 60" in a["body"] for a in alerts(client, rh))
+
+    # the rider gets a UPI link with the amount filled in; paying is recorded, never handled
+    mine = client.get(f"{API}/trips/{tid}", headers=rh).json()
+    assert mine["pay_to"]["upi_id"] == "price.d@okaxis" and "am=60" in mine["pay_to"]["link"] and mine["pay_to"]["link"].startswith("upi://pay?")
+    assert client.post(f"{API}/trips/{tid}/paid", headers=rh).json()["my_seat"]["payment"]["rider_paid"] is True
+    assert any(a["kind"] == "paid" for a in alerts(client, dh))
+    got = client.post(f"{API}/trips/{tid}/seats/{seat['seat_id']}/received", headers=dh).json()
+    assert got["riders"][0]["payment"] == {"rider_paid": True, "driver_got": True}
+    assert client.post(f"{API}/trips/{tid}/seats/{seat['seat_id']}/received", headers=rh).status_code == 403
+
+    # a free ride: nothing to pay; and the UPI ID shows on the driver's own profile
+    assert client.get(f"{API}/auth/me", headers=dh).json()["profile"]["upi_id"] == "price.d@okaxis"
+    assert pricing.per_seat(0, 10, 10, 3) == 0
+    client.post(f"{API}/trips/{tid}/withdraw", headers=rh)
+    client.post(f"{API}/trips/{tid}/cancel", headers=dh)

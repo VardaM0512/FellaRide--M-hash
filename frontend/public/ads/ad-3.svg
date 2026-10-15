@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 500" width="1200" height="500">
+<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#13182B"/><stop offset="1" stop-color="#2F3C77"/></linearGradient>
+<radialGradient id="r" cx=".8" cy=".4" r=".6"><stop offset="0" stop-color="#9DB4FF" stop-opacity=".28"/><stop offset="1" stop-color="#9DB4FF" stop-opacity="0"/></radialGradient></defs>
+<rect width="1200" height="500" fill="url(#g)"/><rect width="1200" height="500" fill="url(#r)"/>
+<circle cx="1120" cy="-40" r="180" fill="#9DB4FF" opacity=".08"/><circle cx="-60" cy="520" r="220" fill="#fff" opacity=".04"/>
+<g font-family="Geist, Inter, system-ui, -apple-system, Segoe UI, sans-serif">
+<text x="80" y="118" fill="#9DB4FF" font-size="26" font-weight="700" letter-spacing="5">WEEKEND CAR CARE</text>
+<text x="80" y="218" fill="#fff" font-size="84" font-weight="700" letter-spacing="-2">Free check-up</text>
+<text x="80" y="306" fill="#fff" font-size="84" font-weight="700" letter-spacing="-2">for drivers</text>
+<text x="80" y="362" fill="#fff" fill-opacity=".72" font-size="28">Tyres, brakes and AC, done while you wait</text>
+<rect x="80" y="396" width="251" height="58" rx="29" fill="#9DB4FF"/>
+<text x="205.5" y="434" fill="#13182B" font-size="25" font-weight="700" text-anchor="middle">Book a slot →</text>
+</g><g transform="translate(905 260)"><ellipse cx="0" cy="110" rx="170" ry="22" fill="#000" opacity=".25"/><path d="M-160 60 v-50 l40 -70 h220 l50 70 v50z" fill="#E7ECFF"/><path d="M-100 -50 h80 v55 h-115z M0 -50 h90 l38 55 h-128z" fill="#2F3C77" opacity=".85"/><circle cx="-95" cy="70" r="38" fill="#13182B"/><circle cx="-95" cy="70" r="16" fill="#9DB4FF"/><circle cx="95" cy="70" r="38" fill="#13182B"/><circle cx="95" cy="70" r="16" fill="#9DB4FF"/></g></svg>

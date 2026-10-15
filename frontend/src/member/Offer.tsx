@@ -10,6 +10,10 @@ import { useAnnounce } from '../lib/announce';
 import { nameOf, routesBetween, type RouteOption } from '../lib/places';
 import { useSession } from '../lib/session';
 import { GENDER_LABEL, ratingText, soon, toLocalInput } from '../lib/tripFormat';
+import { defaultPerKm, maxPerKm, perSeat, rate, rupees } from '../lib/pricing';
+
+type Price = 'free' | 'half' | 'suggested';
+const UPI_RE = /^[A-Za-z0-9._-]{2,256}@[A-Za-z][A-Za-z0-9]{1,63}$/;
 
 export default function Offer() {
   const { session, signIn } = useSession();
@@ -28,6 +32,11 @@ export default function Offer() {
   const p = session?.profile;
   const [car, setCar] = useState({ model: p?.car?.model ?? '', colour: p?.car?.colour ?? '', plate: p?.car?.plate ?? '' });
   const [licence, setLicence] = useState(false);   // ticked every time a ride is offered
+  const [price, setPrice] = useState<Price>('suggested');
+  const [upi, setUpi] = useState(p?.upi_id ?? '');
+  const [costShare, setCostShare] = useState(false);   // ticked every time, like the licence
+  const perKm = price === 'free' ? 0 : price === 'half' ? Math.round((defaultPerKm(seats) / 2) * 100) / 100 : defaultPerKm(seats);
+  const upiOk = !upi.trim() || UPI_RE.test(upi.trim());
   const carReady = car.model.trim().length >= 2 && car.colour.trim().length >= 2 && car.plate.trim().length >= 4;
 
   async function tapMap(pt: { lat: number; lon: number }) {
@@ -41,6 +50,8 @@ export default function Offer() {
     if (!from || !to) return setError(new Error('Set where you start and where you’re going.'));
     if (!carReady) return setError(new Error('Add your car’s model, colour and number, so riders can find you.'));
     if (!licence) return setError(new Error('Tick the box to confirm you have a valid driving licence.'));
+    if (!costShare) return setError(new Error('Tick the box to confirm you’re sharing costs, not running a taxi.'));
+    if (!upiOk) return setError(new Error('That UPI ID doesn’t look right. It looks like name@bank.'));
     if (new Date(when).getTime() < Date.now() - 5 * 60_000) return setError(new Error('Pick a time from now on.'));
     setError(null); setBusy(true);
     const r = await routesBetween(from, to);
@@ -55,9 +66,10 @@ export default function Offer() {
         from_name: from.name, from_lat: from.lat, from_lon: from.lon, to_name: to.name, to_lat: to.lat, to_lon: to.lon,
         depart_at: new Date(when).toISOString(), route: r.coords, route_km: r.km, route_min: r.min, seats,
         car: { model: car.model.trim(), colour: car.colour.trim(), plate: car.plate.trim() }, licence_confirmed: licence,
+        cost_share_confirmed: costShare, price_per_km: perKm, ...(upi.trim() ? { upi_id: upi.trim() } : {}),
       });
       // remember the car for next time (the server tidies the number plate)
-      if (session && p) signIn({ ...session, profile: { ...p, car: trip.car } });
+      if (session && p) signIn({ ...session, profile: { ...p, car: trip.car, upi_id: upi.trim() || p.upi_id || null } });
       announce(`Ride posted. ${trip.notified ?? 0} people nearby were told.`);
       navigate(`/trip/${trip.id}`, { replace: true, state: { notified: trip.notified ?? 0 } });
     } catch (err) { setError(err); }
@@ -96,6 +108,8 @@ export default function Offer() {
           <dt>Seats</dt><dd>{seats}</dd>
           <dt>Car</dt><dd>{car.colour} {car.model} · {car.plate.toUpperCase()}</dd>
           <dt>Licence</dt><dd>Confirmed by you</dd>
+          <dt>Contribution</dt><dd>{perKm === 0 ? 'Free ride' : `${rupees(perSeat(perKm, routes[chosen].km, routes[chosen].km, seats))} a seat for the whole way · ${rate(perKm)}`}</dd>
+          <dt>Trip cost</dt><dd>About {rupees(Math.round(9 * routes[chosen].km))} to drive. Riders together never pay more.</dd>
         </dl>
         <ErrorNote error={error} />
         <div className="btn-row">
@@ -147,8 +161,36 @@ export default function Offer() {
           <button type="button" onClick={() => setSeats((s) => Math.min(7, s + 1))} aria-label="One more">+</button>
         </div>
       </div>
+      <fieldset className="card stack price-box" style={{ margin: 0 }}>
+        <legend className="sr-only">Cost sharing</legend>
+        <h2 style={{ fontSize: 'var(--fs-h3)' }} aria-hidden="true">Cost sharing</h2>
+        <p className="small muted" style={{ marginTop: -8 }}>Riders chip in for the distance they travel. FellaRide is cost-sharing only: you can’t make a profit.</p>
+        <div className="segmented price-pick" role="radiogroup" aria-label="What riders pay">
+          {(['free', 'half', 'suggested'] as Price[]).map((k) => (
+            <button key={k} type="button" role="radio" aria-checked={price === k} aria-pressed={price === k} onClick={() => setPrice(k)}>
+              {k === 'free' ? 'Free' : k === 'half' ? 'Half' : 'Suggested'}
+            </button>
+          ))}
+        </div>
+        <p className="price-line">
+          {perKm === 0 ? <><strong>Free ride.</strong> Riders pay nothing.</>
+            : <><strong>{rate(perKm)}</strong> · a 10 km rider pays about <strong>{rupees(perSeat(perKm, 10, 10, seats))}</strong>, minimum ₹30</>}
+        </p>
+        <p className="tiny muted">Most you could ask with {seats} seat{seats === 1 ? '' : 's'}: {rate(maxPerKm(seats))}, so a full car only covers the fuel and wear.</p>
+        {perKm > 0 && (
+          <label className="field">UPI ID (optional)
+            <input value={upi} onChange={(e) => setUpi(e.target.value)} placeholder="yourname@okaxis" autoComplete="off" autoCapitalize="none" spellCheck={false}
+              aria-invalid={!upiOk} />
+            <span className="hint">{upiOk ? 'Riders get a Pay by UPI button with the amount filled in. Cash works too.' : 'Looks like name@bank.'}</span>
+          </label>
+        )}
+        <label className="check-row">
+          <input type="checkbox" checked={costShare} onChange={(e) => setCostShare(e.target.checked)} required />
+          <span>I’m sharing costs, not running a taxi.</span>
+        </label>
+      </fieldset>
       <ErrorNote error={error} />
-      <button className="btn btn-primary btn-block" disabled={busy || !from || !to || !carReady || !licence}>{busy ? 'Finding routes…' : <>Next: confirm route {Icon.arrow}</>}</button>
+      <button className="btn btn-primary btn-block" disabled={busy || !from || !to || !carReady || !licence || !costShare || !upiOk}>{busy ? 'Finding routes…' : <>Next: confirm route {Icon.arrow}</>}</button>
     </form>
   );
 }

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 500" width="1200" height="500">
+<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2A1020"/><stop offset="1" stop-color="#7A2350"/></linearGradient>
+<radialGradient id="r" cx=".8" cy=".4" r=".6"><stop offset="0" stop-color="#FFB3D1" stop-opacity=".28"/><stop offset="1" stop-color="#FFB3D1" stop-opacity="0"/></radialGradient></defs>
+<rect width="1200" height="500" fill="url(#g)"/><rect width="1200" height="500" fill="url(#r)"/>
+<circle cx="1120" cy="-40" r="180" fill="#FFB3D1" opacity=".08"/><circle cx="-60" cy="520" r="220" fill="#fff" opacity=".04"/>
+<g font-family="Geist, Inter, system-ui, -apple-system, Segoe UI, sans-serif">
+<text x="80" y="118" fill="#FFB3D1" font-size="26" font-weight="700" letter-spacing="5">CITY BOOK FAIR</text>
+<text x="80" y="218" fill="#fff" font-size="84" font-weight="700" letter-spacing="-2">Read on</text>
+<text x="80" y="306" fill="#fff" font-size="84" font-weight="700" letter-spacing="-2">the ride</text>
+<text x="80" y="362" fill="#fff" fill-opacity=".72" font-size="28">Student passes at half price this weekend</text>
+<rect x="80" y="396" width="234" height="58" rx="29" fill="#FFB3D1"/>
+<text x="197.0" y="434" fill="#2A1020" font-size="25" font-weight="700" text-anchor="middle">Get a pass →</text>
+</g><g transform="translate(905 255)"><ellipse cx="0" cy="125" rx="160" ry="22" fill="#000" opacity=".25"/><path d="M0 -70 c-50 -30 -110 -30 -150 -10 v190 c40 -20 100 -20 150 10z" fill="#FFE9F2"/><path d="M0 -70 c50 -30 110 -30 150 -10 v190 c-40 -20 -100 -20 -150 10z" fill="#FFD3E5"/><path d="M-120 -30 h80 M-120 0 h90 M-120 30 h70 M40 -30 h80 M30 0 h90 M40 30 h60" stroke="#7A2350" stroke-width="8" stroke-linecap="round" opacity=".5"/></g></svg>

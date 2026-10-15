@@ -13,6 +13,8 @@ import { nameOf } from '../lib/places';
 import { usePrefs } from '../lib/prefs';
 import { useSession } from '../lib/session';
 import { GENDER_LABEL, SEAT_STATUS, carText, ratingText, whenLabel } from '../lib/tripFormat';
+import SeatStepper from '../components/SeatStepper';
+import { rupees } from '../lib/pricing';
 
 type GenderFilter = 'all' | 'female' | 'male';
 type SortBy = 'match' | 'soonest' | 'rating';
@@ -38,6 +40,7 @@ export default function Find() {
   const [to, setTo] = useState<Place | null>(null);
   const [active, setActive] = useState<'from' | 'to'>('from');
   const [when, setWhen] = useState('');
+  const [need, setNeed] = useState(1);   // seats: the rider plus friends travelling with them
   const [results, setResults] = useState<Trip[] | null>(null);
   const [gender, setGender] = useState<GenderFilter>('all');
   const [sortBy, setSortBy] = useState<SortBy>('match');
@@ -68,11 +71,11 @@ export default function Find() {
     navigator.vibrate?.(12);
     try {
       const [updated] = await Promise.all([
-        step.mutateAsync({ tripId: trip.id, path: 'request', body: { pickup_name: from?.name ?? '', pickup_lat: from?.lat, pickup_lon: from?.lon } }),
+        step.mutateAsync({ tripId: trip.id, path: 'request', body: { pickup_name: from?.name ?? '', pickup_lat: from?.lat, pickup_lon: from?.lon, seats: need } }),
         new Promise((r) => setTimeout(r, motionReduced ? 0 : 1100)),
       ]);
       setResults((rs) => rs && rs.map((t) => (t.id === trip.id ? { ...t, ...updated, pickup_km: t.pickup_km, drop_km: t.drop_km } : t)));
-      announce(`Seat requested from ${trip.driver.name}. You can ask other drivers too.`);
+      announce(`${need === 1 ? 'Seat' : `${need} seats`} requested from ${trip.driver.name}. You can ask other drivers too.`);
     } catch (err) { setError(err); } finally { setPunched(null); }
   }
 
@@ -97,6 +100,7 @@ export default function Find() {
           <input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} />
           <span className="hint">Leave empty to see every upcoming ride. With a time, you see rides within 90 minutes of it.</span>
         </label>
+        <SeatStepper value={need} onChange={setNeed} max={4} />
         <ErrorNote error={error} />
         <button className="btn btn-ride btn-block" disabled={busy || !from}>{busy ? 'Looking…' : <>{Icon.search} Find rides</>}</button>
       </form>
@@ -151,11 +155,19 @@ export default function Find() {
                 </span>
                 <strong>{t.seats_left} seat{t.seats_left === 1 ? '' : 's'} left</strong>
               </p>
+              {t.per_seat !== undefined && (
+                <p className="price-tag">
+                  {t.per_seat === 0 ? <><strong>Free ride</strong> · the driver isn’t asking for anything</>
+                    : <><strong>{rupees(t.per_seat * need)}</strong>{need > 1 ? ` for ${need} seats` : ' per seat'} · cost-sharing for your {t.rider_km} km</>}
+                </p>
+              )}
               <div className="btn-row">
-                <button className="btn btn-quiet btn-small" onClick={() => navigate(`/trip/${t.id}`, { state: { pickup: from } })}>Details</button>
+                <button className="btn btn-quiet btn-small" onClick={() => navigate(`/trip/${t.id}`, { state: { pickup: from, seats: need } })}>Details</button>
                 {t.my_seat && t.my_seat.status !== 'withdrawn'
-                  ? <button className="btn btn-small" onClick={() => navigate(`/trip/${t.id}`, { state: { pickup: from } })}>{SEAT_STATUS[t.my_seat.status]}</button>
-                  : <button className="btn btn-ride btn-small" disabled={step.isPending} onClick={() => ask(t)}>Ask for a seat</button>}
+                  ? <button className="btn btn-small" onClick={() => navigate(`/trip/${t.id}`, { state: { pickup: from, seats: need } })}>{SEAT_STATUS[t.my_seat.status]}</button>
+                  : t.seats_left < need
+                    ? <button className="btn btn-small" disabled>Only {t.seats_left} left</button>
+                    : <button className="btn btn-ride btn-small" disabled={step.isPending} onClick={() => ask(t)}>{need === 1 ? 'Ask for a seat' : `Ask for ${need} seats`}</button>}
               </div>
             </article>
           ))}

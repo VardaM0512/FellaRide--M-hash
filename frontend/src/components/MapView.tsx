@@ -4,11 +4,12 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { useEffect, useRef } from 'react';
 
-export interface MapPoint { lat: number; lon: number; kind: 'from' | 'to' | 'pickup' | 'me'; label?: string }
+export interface MapPoint { lat: number; lon: number; kind: 'from' | 'to' | 'pickup' | 'me' | 'car' | 'rider'; label?: string; heading?: number | null }
 export interface MapRoute { id: number; coords: [number, number][]; selected?: boolean }
 
 // vermilion start, ink end, cobalt pickup, grey you
-const COLORS: Record<MapPoint['kind'], string> = { from: '#B4532A', to: '#101418', pickup: '#1A66BD', me: '#5A616B' };
+const COLORS: Record<MapPoint['kind'], string> = { from: '#B4532A', to: '#101418', pickup: '#1A66BD', me: '#5A616B', car: '#C9973A', rider: '#1A66BD' };
+const LIVE_KINDS: MapPoint['kind'][] = ['car', 'rider'];   // these move: drawn as live markers and never re-fit the map
 const dark = () => document.documentElement.dataset.theme === 'dark';
 
 export default function MapView({ points = [], routes = [], center, onPick, onRouteClick, height = 260, label }: {
@@ -54,14 +55,23 @@ export default function MapView({ points = [], routes = [], center, onPick, onRo
       if (onRouteClick) line.on('click', (e) => { L.DomEvent.stopPropagation(e); onRouteClick(r.id); });
     });
     points.forEach((p) => {
+      if (LIVE_KINDS.includes(p.kind)) {
+        const html = p.kind === 'car'
+          ? `<span class="live-car" style="--h:${p.heading ?? 0}deg"><span class="live-car-pulse"></span><span class="live-car-dot"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 16V11l2-5h10l2 5v5M3 16h18M7 19v-3M17 19v-3"/></svg></span></span>`
+          : '<span class="live-rider"><span class="live-car-pulse"></span><span class="live-rider-dot"></span></span>';
+        const mk = L.marker([p.lat, p.lon], { icon: L.divIcon({ html, className: 'live-marker', iconSize: [36, 36], iconAnchor: [18, 18] }), zIndexOffset: 1000, keyboard: false }).addTo(g);
+        if (p.label) mk.bindTooltip(p.label);
+        return;
+      }
       const c = L.circleMarker([p.lat, p.lon], { radius: p.kind === 'me' ? 7 : 9, color: '#FFFFFF', weight: 3, fillColor: COLORS[p.kind], fillOpacity: 1, className: 'map-pin' }).addTo(g);
       if (p.label) c.bindTooltip(p.label);
     });
     // re-fit only when the set of places or routes changes, not on every poll
-    const sig = JSON.stringify([points.map((p) => [p.lat, p.lon]), routes.map((r) => [r.id, r.coords.length])]);
+    const fixed = points.filter((p) => !LIVE_KINDS.includes(p.kind));
+    const sig = JSON.stringify([fixed.map((p) => [p.lat, p.lon]), routes.map((r) => [r.id, r.coords.length])]);
     if (sig === lastFit.current) return;
     lastFit.current = sig;
-    const all: [number, number][] = [...points.map((p) => [p.lat, p.lon] as [number, number]), ...routes.flatMap((r) => r.coords)];
+    const all: [number, number][] = [...fixed.map((p) => [p.lat, p.lon] as [number, number]), ...routes.flatMap((r) => r.coords)];
     if (all.length === 1) m.flyTo(all[0], 15, { duration: 0.8 });
     else if (all.length > 1) m.flyToBounds(L.latLngBounds(all), { padding: [32, 32], maxZoom: 16, duration: 0.8 });
   }, [points, routes, onRouteClick]);

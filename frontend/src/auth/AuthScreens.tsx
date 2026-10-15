@@ -9,7 +9,9 @@ import { Avatar, ErrorNote, Icon, Logo, Skeleton } from '../components/ui';
 import { STATE_LABEL } from '../lib/format';
 import { GENDER_OPTIONS } from '../lib/tripFormat';
 import { useSession } from '../lib/session';
+import { usePrefs } from '../lib/prefs';
 import { ThemeToggle } from '../member/Settings';
+import WelcomeImpact, { usePublicImpact } from './WelcomeImpact';
 
 function Shell({ title, back = '/welcome', children }: { title?: string; back?: string | null; children: ReactNode }) {
   return (
@@ -57,9 +59,11 @@ function PasswordField({ label, value, onChange, autoComplete, hint }: {
   );
 }
 
-// Brand moment: scattered members appear, their separate commutes converge into one shared
-// route, and the ride arrives. It plays once; afterwards only a faint light travels the shared route.
-// Pure SVG + CSS (see "hero art" in app.css), so the app's Reduce motion setting shows the final frame.
+// Brand moment, on its own stage above the hero text: scattered members appear on a faint map grid, their separate
+// commutes converge into one shared route, and the ride arrives. After that it keeps living: a car loops along the
+// shared route, picking everyone up, and the destination pulses. Two chips carry the live impact numbers. Pure SVG + CSS; with Reduce motion on, the car is not
+// drawn and the CSS shows the final frame.
+const SHARED = 'M34 46 C 110 46 170 100 250 104 C 290 99 322 86 352 73';   // member 1's commute, then the shared stretch (stops short of the pin)
 const MERGE = 'M250 104 C 292 98 330 82 372 64';
 const MEMBERS = [
   { x: 34, y: 46, d: 'M34 46 C 110 46 170 100 250 104' },
@@ -70,31 +74,52 @@ const MEMBERS = [
 ];
 
 function HeroArt() {
+  const { motionReduced } = usePrefs();
+  const impact = usePublicImpact().data;   // the chips show the live numbers, so impact is visible in the first second
   return (
-    <svg className="hero-art" viewBox="0 0 440 320" preserveAspectRatio="xMidYMin meet" aria-hidden="true">
-      <defs>
-        <linearGradient id="hero-fade" x1="0" y1="0" x2="0" y2="1">
-          <stop className="fade-stop" offset="0.52" stopColor="#101418" stopOpacity="0" />
-          <stop className="fade-stop" offset="0.82" stopColor="#101418" stopOpacity="1" />
-        </linearGradient>
-        <radialGradient id="hero-glow" cx="0.5" cy="0.5" r="0.5">
-          <stop className="glow-stop" offset="0" stopColor="#C9973A" stopOpacity="0.35" />
-          <stop className="glow-stop" offset="1" stopColor="#C9973A" stopOpacity="0" />
-        </radialGradient>
-      </defs>
-      {MEMBERS.map((m, i) => (
-        <g key={i} style={{ ['--i' as string]: i }}>
-          <path className="ha-route" d={m.d} pathLength={1} />
-          <circle className="ha-member" cx={m.x} cy={m.y} r={3} />
-        </g>
-      ))}
-      <path className="ha-shared" d={MERGE} pathLength={1} />
-      <path className="ha-light" d={MERGE} pathLength={1} />
-      <circle className="ha-glow" cx={372} cy={64} r={34} fill="url(#hero-glow)" />
-      <circle className="ha-dest-ring" cx={372} cy={64} r={7} />
-      <circle className="ha-dest" cx={372} cy={64} r={3} />
-      <rect width="440" height="320" fill="url(#hero-fade)" />
-    </svg>
+    <div className="hero-stage" aria-hidden="true">
+      <svg className="hero-art" viewBox="0 0 440 210" preserveAspectRatio="xMidYMid meet">
+        <defs>
+          <pattern id="hero-grid" width="22" height="22" patternUnits="userSpaceOnUse">
+            <circle cx="1" cy="1" r="1" className="ha-grid-dot" />
+          </pattern>
+          <radialGradient id="hero-glow" cx="0.5" cy="0.5" r="0.5">
+            <stop className="glow-stop" offset="0" stopOpacity="0.45" />
+            <stop className="glow-stop" offset="1" stopOpacity="0" />
+          </radialGradient>
+          <filter id="hero-blur" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="4" /></filter>
+        </defs>
+        <rect width="440" height="210" fill="url(#hero-grid)" className="ha-grid" />
+        {MEMBERS.map((m, i) => (
+          <g key={i} style={{ ['--i' as string]: i }}>
+            <path className="ha-route" d={m.d} pathLength={1} />
+            <circle className="ha-member-ring" cx={m.x} cy={m.y} r={7} />
+            <circle className="ha-member" cx={m.x} cy={m.y} r={4} />
+          </g>
+        ))}
+        <path className="ha-shared-glow" d={MERGE} pathLength={1} filter="url(#hero-blur)" />
+        <path className="ha-shared" d={MERGE} pathLength={1} />
+        <circle className="ha-glow" cx={372} cy={64} r={40} fill="url(#hero-glow)" />
+        <circle className="ha-dest-pulse" cx={372} cy={64} r={9} />
+        <circle className="ha-dest-ring" cx={372} cy={64} r={9} />
+        <circle className="ha-dest" cx={372} cy={64} r={4} />
+        <text className="ha-dest-label" x={372} y={92} textAnchor="middle">Campus</text>
+        {!motionReduced && (
+          <g className="ha-car" opacity={0}>
+            <rect x={-9} y={-5.5} width={18} height={11} rx={5.5} className="ha-car-body" />
+            <circle cx={4} cy={0} r={2.2} className="ha-car-light" />
+            <animateMotion dur="5.5s" begin="3s" repeatCount="indefinite" rotate="auto" path={SHARED}
+              keyPoints="0;1;1" keyTimes="0;0.8;1" calcMode="spline" keySplines="0.45 0 0.3 1;0 0 1 1" />
+            {/* fade in at the start, out just before it reaches the destination, so it never parks on the label */}
+            <animate attributeName="opacity" dur="5.5s" begin="3s" repeatCount="indefinite" values="0;1;1;0;0" keyTimes="0;0.08;0.7;0.78;1" />
+          </g>
+        )}
+      </svg>
+      {impact && <>
+        <span className="hero-chip hero-chip-a"><span className="live-dot" /> {impact.co2_kg.toLocaleString()} kg CO₂ saved</span>
+        <span className="hero-chip hero-chip-b">{Icon.car} {impact.rides.toLocaleString()} shared rides</span>
+      </>}
+    </div>
   );
 }
 
@@ -104,10 +129,12 @@ export function Welcome() {
       <div className="auth-top brand"><Logo /><strong style={{ flex: 1 }}>FellaRide</strong><ThemeToggle /></div>
       <section className="auth-hero">
         <HeroArt />
-        <p className="hero-eyebrow">Many commutes · One community</p>
-        <h1>Ride with Confidence.</h1>
-        <p className="hero-tagline">Connect with familiar faces</p>
-        <p>Driving somewhere? Post your ride and people along your route can ask for a seat. Need a ride? See who’s going your way, with their rating, and ask.</p>
+        <div className="hero-copy">
+          <p className="hero-eyebrow">Many commutes · One community</p>
+          <h1>Ride with Confidence.</h1>
+          <p className="hero-tagline">Connect with familiar faces</p>
+          <p>Driving somewhere? Post your ride and people along your route can ask for a seat. Need a ride? See who’s going your way, with their rating, and ask.</p>
+        </div>
       </section>
       <div className="auth-actions">
         <div className="welcome-intro">
@@ -119,6 +146,7 @@ export function Welcome() {
         <Link to="/demo" className="btn btn-accent btn-block">Try the demo community</Link>
         <Link to="/start" className="btn-link" style={{ justifySelf: 'center', marginTop: 6 }}>Organising a community? Start one</Link>
       </div>
+      <WelcomeImpact />
     </main>
   );
 }
@@ -156,34 +184,78 @@ export function SignIn() {
   );
 }
 
+const RESEND_AFTER = 60;   // seconds before "Send it again" works
+
+/** Forgot password: ask for the email, then enter the 6-digit code from it (or tap the link in the email)
+ *  and a new password, all on one screen. */
 export function ForgotPassword() {
   const [params] = useSearchParams();
+  const { signIn } = useSession();
+  const navigate = useNavigate();
   const [email, setEmail] = useState(params.get('email') || '');
   const [sent, setSent] = useState<string | null>(null);
+  const [code, setCode] = useState('');
+  const [password, setPassword] = useState('');
+  const [wait, setWait] = useState(0);
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
-  async function submit(e: FormEvent) {
-    e.preventDefault();
+
+  useEffect(() => {
+    if (wait <= 0) return;
+    const t = setTimeout(() => setWait((w) => w - 1), 1000);
+    return () => clearTimeout(t);
+  }, [wait]);
+
+  async function send(e?: FormEvent) {
+    e?.preventDefault();
     setBusy(true); setError(null);
-    try { setSent((await forgotPassword(email.trim())).message); } catch (err) { setError(err); } finally { setBusy(false); }
+    try { setSent((await forgotPassword(email.trim())).message); setWait(RESEND_AFTER); setCode(''); }
+    catch (err) { setError(err); } finally { setBusy(false); }
+  }
+
+  async function reset(e: FormEvent) {
+    e.preventDefault();
+    if (!/^\d{6}$/.test(code)) return setError(new Error('Enter the 6-digit code from the email.'));
+    if (password.length < 8) return setError(new Error('Use at least 8 characters for your password.'));
+    setBusy(true); setError(null);
+    try {
+      const s = await resetPassword({ email: email.trim(), code }, password);
+      signIn(s);
+      navigate(s.user.role === 'admin' ? '/dashboard' : '/', { replace: true });
+    } catch (err) { setError(err); } finally { setBusy(false); }
+  }
+
+  if (sent) {
+    return (
+      <Shell title="Check your email" back="/signin">
+        <form onSubmit={reset} className="stack-lg" noValidate>
+          <p className="note note-ok" role="status">{sent}</p>
+          <p className="muted small">Sent to <strong>{email.trim()}</strong>. Tap the link in the email, or enter the code here.</p>
+          <label className="field">6-digit code
+            <input className="code-input" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} placeholder="••••••" autoFocus aria-describedby="code-hint" />
+            <span className="hint" id="code-hint">Not there? Check spam or promotions.</span>
+          </label>
+          <PasswordField label="New password" value={password} onChange={setPassword} autoComplete="new-password" hint="At least 8 characters." />
+          <ErrorNote error={error} />
+          <button className="btn btn-primary btn-block" disabled={busy || code.length !== 6 || password.length < 8}>{busy ? 'Saving…' : 'Set password and sign in'}</button>
+          <div className="btn-row" style={{ justifyContent: 'center' }}>
+            <button type="button" className="btn-link small" disabled={busy || wait > 0} onClick={() => send()}>
+              {wait > 0 ? `Send it again in ${wait}s` : 'Send it again'}</button>
+            <button type="button" className="btn-link small" onClick={() => { setSent(null); setError(null); }}>Use a different email</button>
+          </div>
+        </form>
+      </Shell>
+    );
   }
   return (
     <Shell title="Forgot password" back="/signin">
-      {sent ? (
-        <div className="stack-lg">
-          <p className="note note-ok" role="status">{sent}</p>
-          <p className="small muted">Didn’t get it? Check your spam folder, or try again in a minute.</p>
-          <button className="btn btn-quiet btn-block" onClick={() => setSent(null)}>Send it again</button>
-          <Link to="/signin" className="btn btn-primary btn-block">Back to sign in</Link>
-        </div>
-      ) : (
-        <form onSubmit={submit} className="stack-lg" noValidate>
-          <p className="muted">Enter the email you signed up with. We’ll send you a link to set a new password.</p>
-          <label className="field">Email<input type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></label>
-          <ErrorNote error={error} />
-          <button className="btn btn-primary btn-block" disabled={busy || !email.includes('@')}>{busy ? 'Sending…' : 'Send reset link'}</button>
-        </form>
-      )}
+      <form onSubmit={send} className="stack-lg" noValidate>
+        <p className="muted">Enter the email you signed up with. We’ll send you a link and a 6-digit code to set a new password.</p>
+        <label className="field">Email<input type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></label>
+        <ErrorNote error={error} />
+        <button className="btn btn-primary btn-block" disabled={busy || !email.includes('@')}>{busy ? 'Sending…' : 'Send reset code'}</button>
+      </form>
     </Shell>
   );
 }
@@ -203,7 +275,7 @@ export function ResetPassword() {
     if (password !== again) return setError(new Error('The two passwords don’t match.'));
     setBusy(true); setError(null);
     try {
-      const s = await resetPassword(token, password);
+      const s = await resetPassword({ token }, password);
       signIn(s);
       navigate(s.user.role === 'admin' ? '/dashboard' : '/', { replace: true });
     } catch (err) { setError(err); } finally { setBusy(false); }
@@ -211,7 +283,7 @@ export function ResetPassword() {
   if (!token) {
     return (
       <Shell title="Set a new password" back="/signin">
-        <p className="note note-info">This page needs the link from your reset email. <Link to="/forgot-password">Ask for a new link</Link>.</p>
+        <p className="note note-info">This page needs the link from your reset email. Have a code instead? <Link to="/forgot-password">Enter it here</Link>.</p>
       </Shell>
     );
   }

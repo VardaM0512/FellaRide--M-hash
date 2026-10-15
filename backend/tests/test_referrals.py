@@ -27,7 +27,7 @@ def ride_together(client, dh, rh):
     when = (datetime.now(timezone.utc) + timedelta(minutes=15)).isoformat()
     tid = client.post(f"{API}/trips", headers=dh, json={
         "from_name": "Lakeview", "from_lat": 12.97, "from_lon": 77.55, "to_name": "Campus", "to_lat": 12.97, "to_lon": 77.65,
-        "depart_at": when, "route": ROUTE, "route_km": 11.2, "route_min": 25, "seats": 2, "licence_confirmed": True}).json()["id"]
+        "depart_at": when, "route": ROUTE, "route_km": 11.2, "route_min": 25, "seats": 2, "licence_confirmed": True, "cost_share_confirmed": True}).json()["id"]
     client.post(f"{API}/trips/{tid}/request", headers=rh, json={})
     seat = client.get(f"{API}/trips/{tid}", headers=dh).json()["riders"][0]["seat_id"]
     client.post(f"{API}/trips/{tid}/seats/{seat}/approve", headers=dh)

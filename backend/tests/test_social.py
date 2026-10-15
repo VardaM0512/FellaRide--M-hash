@@ -73,3 +73,15 @@ def test_demo_community_board_is_seeded(client):
     posts = [i for i in items if i["type"] == "post"]
     assert len(posts) >= 5 and any(sum(p["reactions"].values()) for p in posts)
     assert any(i["type"] == "activity" for i in items)
+
+
+def test_public_impact_numbers_for_the_welcome_page(client):
+    from app.api import social
+    social._impact_cache["data"] = None   # don't reuse a cached answer from an earlier test
+    r = client.get(f"{API}/community/impact")   # no sign-in needed
+    assert r.status_code == 200
+    d = r.json()
+    assert {"people", "connections", "rides", "km_shared", "co2_kg", "trees_year", "communities", "includes_demo"} <= d.keys()
+    assert d["rides"] > 0 and d["includes_demo"] is True                     # the seeded demo community has ridden
+    assert d["co2_kg"] == round(d["km_shared"] * d["co2_kg_per_km"]) or abs(d["co2_kg"] - d["km_shared"] * 0.12) <= 1
+    assert "email" not in r.text and "mobile" not in r.text                  # totals only, nobody's details

@@ -377,6 +377,65 @@ class TripSeat(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
+class TripSeatCount(Base):
+    """How many seats one request is for (a rider booking for friends too). No row means 1 seat.
+    Its own table so existing databases pick it up without a migration."""
+
+    __tablename__ = "trip_seat_counts"
+    seat_id: Mapped[int] = mapped_column(ForeignKey("trip_seats.id", ondelete="CASCADE"), primary_key=True)
+    count: Mapped[int] = mapped_column(Integer, default=1)
+
+
+class TripLocation(Base):
+    """The latest live position of one person on one trip (the driver, or a rider waiting to be picked up).
+    Only the newest point is kept, and it is deleted when the trip ends or is cancelled."""
+
+    __tablename__ = "trip_locations"
+    trip_id: Mapped[int] = mapped_column(ForeignKey("trips.id", ondelete="CASCADE"), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    lat: Mapped[float] = mapped_column(Float)
+    lon: Mapped[float] = mapped_column(Float)
+    heading: Mapped[float | None] = mapped_column(Float, nullable=True)
+    speed_kmh: Mapped[float | None] = mapped_column(Float, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class PasswordResetCode(Base):
+    """The 6-digit code that goes with a reset link, for when the email is read on another device.
+    Hashed like the link; 5 wrong tries and the code (and its link) stop working."""
+
+    __tablename__ = "password_reset_codes"
+    reset_id: Mapped[int] = mapped_column(ForeignKey("password_resets.id", ondelete="CASCADE"), primary_key=True)
+    code_hash: Mapped[str] = mapped_column(String(64))
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class TripPrice(Base):
+    """The driver's cost-sharing rate for one trip, in rupees per km a rider travels (0 = a free ride).
+    No row means the suggested rate."""
+
+    __tablename__ = "trip_prices"
+    trip_id: Mapped[int] = mapped_column(ForeignKey("trips.id", ondelete="CASCADE"), primary_key=True)
+    per_km: Mapped[float] = mapped_column(Float)
+
+
+class PayoutInfo(Base):
+    """Where riders can send a driver their contribution: a UPI ID. FellaRide never handles the money."""
+
+    __tablename__ = "payout_info"
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    upi_id: Mapped[str] = mapped_column(String(80))
+
+
+class SeatPayment(Base):
+    """Settling up, outside the app: the rider says they paid, the driver says they received it."""
+
+    __tablename__ = "seat_payments"
+    seat_id: Mapped[int] = mapped_column(ForeignKey("trip_seats.id", ondelete="CASCADE"), primary_key=True)
+    rider_paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    driver_got_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class TripMessage(Base):
     """Group chat of a trip: the driver and the approved riders."""
 

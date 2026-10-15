@@ -3,6 +3,7 @@
 import { Link } from 'react-router-dom';
 import { useImpact } from '../api/community';
 import { useMyTrips, type Trip } from '../api/trips';
+import AdCarousel from '../components/AdCarousel';
 import DepartureBoard from '../components/DepartureBoard';
 import { Avatar, ErrorNote, Icon, Skeleton } from '../components/ui';
 import { firstName } from '../lib/format';
@@ -118,6 +119,8 @@ export default function Home() {
           <p className="small muted">Pick one each time. You can drive today and ride tomorrow.</p>
         </section>
       )}
+
+      <AdCarousel />
 
       <ChallengeCard compact />
 

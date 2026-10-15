@@ -29,13 +29,29 @@ export interface Trip {
   driver: Person;
   car: Car | null;
   you: 'driver' | 'rider' | 'none';
-  my_seat: { id: number; status: SeatStatus } | null;
+  my_seat: { id: number; status: SeatStatus; seats: number; contribution: number; payment: Payment } | null;
+  price: Price;
+  pay_to: { upi_id: string; amount: number; link: string } | null;
   code: string | null;
-  riders: { seat_id: number; status: SeatStatus; pickup_name: string; person: Person }[];
+  riders: { seat_id: number; status: SeatStatus; pickup_name: string; seats: number; contribution: number; payment: Payment; person: Person }[];
+  cancel_until: string;
+  can_cancel: boolean;
+  tracking: boolean;
+  live: LivePosition[];
   to_rate?: RateTarget[];
   pickup_km?: number;
+  per_seat?: number;
+  rider_km?: number;
   drop_km?: number | null;
   notified?: number;
+}
+
+export interface Payment { rider_paid: boolean; driver_got: boolean }
+export interface Price { per_km: number; free: boolean; suggested_per_km: number; max_per_km: number; trip_cost: number; full_route_per_seat: number }
+
+export interface LivePosition {
+  user_id: number; role: 'driver' | 'rider'; name: string; lat: number; lon: number; heading: number | null; age_s: number;
+  km_to_you?: number; km_to_end?: number; eta_min?: number;
 }
 
 export interface MyTrips { active: Trip | null; pending: Trip[]; history: (Trip & { to_rate: number })[] }
@@ -43,13 +59,13 @@ export interface Alert { id: number; kind: string; title: string; body: string; 
 export interface Alerts { unread: number; items: Alert[] }
 export interface ChatMessage { id: number; user_id: number; name: string; body: string; created_at: string }
 export interface ReportReason { code: string; category: 'safety' | 'fraud' | 'reliability' | 'conduct' | 'other'; label: string }
-export interface Profile { name: string; gender: Gender; mobile: string | null; rating: Rating; car?: Car | null }
+export interface Profile { name: string; gender: Gender; mobile: string | null; rating: Rating; car?: Car | null; upi_id?: string | null }
 
 export interface TripInput {
   from_name: string; from_lat: number; from_lon: number; to_name: string; to_lat: number; to_lon: number;
   depart_at: string; route: [number, number][]; route_km: number; route_min: number; seats: number;
   car: { model: string; colour: string; plate: string };
-  licence_confirmed: boolean;
+  licence_confirmed: boolean; cost_share_confirmed: boolean; price_per_km?: number; upi_id?: string;
 }
 
 function useUserKey() {

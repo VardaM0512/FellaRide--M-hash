@@ -14,6 +14,7 @@ import argparse
 import json
 import pickle
 import sys
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -28,6 +29,7 @@ sys.path.insert(0, str(BACKEND))
 
 from app.config import get_settings  # noqa: E402
 from app.db import init_db, make_engine  # noqa: E402
+from app.engine import scorer  # noqa: E402
 from app.engine.context import FEATURES, build_context  # noqa: E402
 from app.models import Intervention, Member, Tenant  # noqa: E402
 from app.sim.behaviour import simulate  # noqa: E402
@@ -37,8 +39,29 @@ ROLES = ("driver", "rider", "connector", "referrer")
 MIN_SAMPLES, MIN_AUC = 100, 0.6   # quality bar; weaker roles fall back to the engine's default weights
 
 
+@contextmanager
+def default_engine_prior():
+    """Replay with the engine's DEFAULT_WEIGHTS instead of the scorer.pkl on disk. Otherwise the smart strategy's
+    choices, and so the training data, would depend on the previously shipped model (train -> ship -> different
+    data next time), and the same code wouldn't always give the same model."""
+    settings = get_settings()
+    shipped = settings.scorer_path
+    settings.scorer_path = shipped.with_name("__no_model__.pkl")
+    scorer.load_pretrained.cache_clear()
+    try:
+        yield
+    finally:
+        settings.scorer_path = shipped
+        scorer.load_pretrained.cache_clear()
+
+
 def generate_logs(runs: int = 6, days: int = 30, base_seed: int = 100) -> dict[str, list[tuple[list[float], int]]]:
-    """Return {role: [(features, label), ...]} from `runs` synthetic communities."""
+    """Return {role: [(features, label), ...]} from `runs` synthetic communities (deterministic for given seeds)."""
+    with default_engine_prior():
+        return _replay(runs, days, base_seed)
+
+
+def _replay(runs: int, days: int, base_seed: int) -> dict[str, list[tuple[list[float], int]]]:
     engine = make_engine("sqlite://")
     init_db(engine)
     Session = sessionmaker(bind=engine, expire_on_commit=False)

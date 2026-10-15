@@ -14,7 +14,7 @@ from .. import mailer
 from ..config import get_settings
 from ..db import get_db
 from ..engine import activation, daycycle, feedback, referral_program, trips
-from ..models import (Alert, Booking, Car, DriverLicence, Member, ReferralCode, MemberState, Notification, PasswordReset, Profile, Tenant, Trip, TripSeat,
+from ..models import (Alert, Booking, Car, DriverLicence, PayoutInfo, Member, ReferralCode, MemberState, Notification, PasswordReset, PasswordResetCode, Profile, Tenant, Trip, TripSeat,
                       User)
 from ..schemas import (DeleteAccountIn, DemoLoginIn, FeedbackIn, ForgotPasswordIn, LoginIn, ReadIn, RegisterIn, ResetPasswordIn,
                        SignupIn)
@@ -32,7 +32,7 @@ def session_out(db: Session, user: User) -> dict:
         "token": create_token(user),
         "user": {"id": user.id, "email": user.email, "role": user.role, "member_id": user.member_id},
         "profile": {"name": p.name, "gender": p.gender, "mobile": p.mobile, "rating": trips.rating_of(db, user.id),
-                    "car": trips.car_of(db, user.id, show_plate=True)} if p else None,
+                    "car": trips.car_of(db, user.id, show_plate=True), "upi_id": trips.upi_of(db, user.id)} if p else None,
         "tenant": {**tenant_out(tenant), **({"join_code": tenant.join_code} if user.role == "admin" else {})},
         "member": member_out(member, names.get(member.destination_id)) if member else None,
     }
@@ -77,39 +77,97 @@ def login(body: LoginIn, db: Session = Depends(get_db)):
 
 # ---------- forgot password ----------
 RESET_MINUTES = 30
+CODE_TRIES = 5
 
 
 def _token_hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-@router.post("/auth/forgot-password", summary="Email a link to set a new password (same answer whether or not the email exists)",
+def _code_hash(user_id: int, code: str) -> str:
+    return hashlib.sha256(f"reset-code:{user_id}:{code}".encode()).hexdigest()
+
+
+def _aware(dt: datetime) -> datetime:
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def _reset_email(name: str, link: str, code: str) -> tuple[str, str]:
+    text = (f"Hi {name},\n\nSomeone asked to reset the password for your FellaRide account.\n\n"
+            f"Set a new password here:\n{link}\n\nOr enter this code in the app: {code}\n\n"
+            f"The link and code work once, for {RESET_MINUTES} minutes. If it wasn't you, ignore this email: "
+            f"your password stays the same.\n\nFellaRide")
+    html = f"""<!doctype html><html><body style="margin:0;background:#EEEDE8;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#101418">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:32px 12px"><tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background:#F8F7F3;border-radius:20px;overflow:hidden;border:1px solid #DCDBD4">
+<tr><td style="background:#101418;padding:22px 28px;color:#F4F4F1;font-size:20px;font-weight:700">Fella<span style="color:#C9973A">Ride</span></td></tr>
+<tr><td style="padding:28px">
+<p style="margin:0 0 6px;font-size:22px;font-weight:700">Reset your password</p>
+<p style="margin:0 0 22px;color:#5A616B;font-size:15px;line-height:1.5">Hi {name}, someone asked to reset the password for your FellaRide account.</p>
+<a href="{link}" style="display:inline-block;background:#101418;color:#F4F4F1;text-decoration:none;font-weight:700;padding:14px 26px;border-radius:999px;font-size:15px">Set a new password</a>
+<p style="margin:26px 0 8px;color:#5A616B;font-size:14px">Or enter this code in the app:</p>
+<p style="margin:0;font-size:34px;letter-spacing:10px;font-weight:700;color:#A87A22;font-family:Menlo,Consolas,monospace">{code}</p>
+<p style="margin:26px 0 0;color:#5A616B;font-size:13px;line-height:1.5">The link and code work once, for {RESET_MINUTES} minutes. If it wasn't you, ignore this email: your password stays the same.</p>
+</td></tr></table>
+<p style="color:#5A616B;font-size:12px;margin:16px 0 0">FellaRide · Community carpooling</p>
+</td></tr></table></body></html>"""
+    return text, html
+
+
+@router.post("/auth/forgot-password", summary="Email a link and a 6-digit code to set a new password (same answer whether or not the email exists)",
              dependencies=[Depends(auth_rate_limit)])
 def forgot_password(body: ForgotPasswordIn, background: BackgroundTasks, db: Session = Depends(get_db)):
     user = db.scalar(select(User).where(User.email == body.email.strip().lower()))
     if user and not is_deleted(user):
-        token = secrets.token_urlsafe(32)
-        db.add(PasswordReset(user_id=user.id, token_hash=_token_hash(token),
-                             expires_at=datetime.now(timezone.utc) + timedelta(minutes=RESET_MINUTES)))
+        token, code = secrets.token_urlsafe(32), f"{secrets.randbelow(10 ** 6):06d}"
+        # a new request replaces any older link or code that hasn't been used
+        for old in db.scalars(select(PasswordReset).where(PasswordReset.user_id == user.id, PasswordReset.used_at.is_(None))):
+            old.used_at = datetime.now(timezone.utc)
+        r = PasswordReset(user_id=user.id, token_hash=_token_hash(token),
+                          expires_at=datetime.now(timezone.utc) + timedelta(minutes=RESET_MINUTES))
+        db.add(r)
+        db.flush()
+        db.add(PasswordResetCode(reset_id=r.id, code_hash=_code_hash(user.id, code)))
         db.commit()
+        p = db.get(Profile, user.id)
         link = f"{get_settings().app_url.rstrip('/')}/reset-password?token={token}"
-        background.add_task(mailer.send, user.email, "Reset your FellaRide password",
-                            f"Someone asked to reset the password for your FellaRide account.\n\n"
-                            f"Set a new password here (the link works for {RESET_MINUTES} minutes, once):\n{link}\n\n"
-                            f"If it wasn't you, ignore this email. Your password stays the same.")
+        text, html = _reset_email((p.name.split()[0] if p and p.name else "there"), link, code)
+        background.add_task(mailer.send, user.email, f"{code} is your FellaRide reset code", text, html)
     # the same answer either way, so nobody can find out who has an account
-    return {"ok": True, "message": f"If an account uses that email, we’ve sent it a link to set a new password. "
-                                   f"The link works for {RESET_MINUTES} minutes."}
+    return {"ok": True, "message": f"If an account uses that email, we’ve sent it a link and a 6-digit code. "
+                                   f"They work for {RESET_MINUTES} minutes."}
 
 
-@router.post("/auth/reset-password", summary="Set a new password with the emailed link; signs you in",
+def _reset_from_code(db: Session, email: str, code: str) -> tuple[PasswordReset | None, User | None]:
+    user = db.scalar(select(User).where(User.email == email.strip().lower()))
+    if not user:
+        return None, None
+    r = db.scalar(select(PasswordReset).where(PasswordReset.user_id == user.id, PasswordReset.used_at.is_(None))
+                  .order_by(PasswordReset.id.desc()))
+    c = db.get(PasswordResetCode, r.id) if r else None
+    if not r or not c:
+        return None, None
+    if c.code_hash != _code_hash(user.id, code):
+        c.attempts += 1
+        if c.attempts >= CODE_TRIES:   # too many guesses: this code and its link stop working
+            r.used_at = datetime.now(timezone.utc)
+        db.commit()
+        left = CODE_TRIES - c.attempts
+        raise HTTPException(400, "That code isn’t right." + (f" {left} {'try' if left == 1 else 'tries'} left." if left > 0
+                                                              else " Ask for a new one."))
+    return r, user
+
+
+@router.post("/auth/reset-password", summary="Set a new password with the emailed link, or your email and the 6-digit code; signs you in",
              dependencies=[Depends(auth_rate_limit)])
 def reset_password(body: ResetPasswordIn, db: Session = Depends(get_db)):
-    r = db.scalar(select(PasswordReset).where(PasswordReset.token_hash == _token_hash(body.token)))
-    user = db.get(User, r.user_id) if r else None
-    expires = None if r is None else r.expires_at if r.expires_at.tzinfo else r.expires_at.replace(tzinfo=timezone.utc)
-    if not r or r.used_at or expires < datetime.now(timezone.utc) or not user or is_deleted(user):
-        raise HTTPException(400, "This link has expired or was already used. Ask for a new one.")
+    if body.token:
+        r = db.scalar(select(PasswordReset).where(PasswordReset.token_hash == _token_hash(body.token)))
+        user = db.get(User, r.user_id) if r else None
+    else:
+        r, user = _reset_from_code(db, body.email, body.code)
+    if not r or r.used_at or _aware(r.expires_at) < datetime.now(timezone.utc) or not user or is_deleted(user):
+        raise HTTPException(400, "This link or code has expired or was already used. Ask for a new one.")
     user.password_hash = hash_password(body.password)   # also signs out every other session (see auth.password_version)
     for other in db.scalars(select(PasswordReset).where(PasswordReset.user_id == user.id, PasswordReset.used_at.is_(None))):
         other.used_at = datetime.now(timezone.utc)
@@ -148,7 +206,7 @@ def delete_account(body: DeleteAccountIn, actor: Actor = Depends(current_actor),
     m = db.get(Member, user.member_id) if user.member_id else None
     if m:
         m.name, m.email = "Former member", None
-    for model in (Car, DriverLicence, PasswordReset, ReferralCode):
+    for model in (Car, DriverLicence, PasswordReset, PayoutInfo, ReferralCode):
         for row in db.scalars(select(model).where(model.user_id == user.id)):
             db.delete(row)
     for a in db.scalars(select(Alert).where(Alert.user_id == user.id)):

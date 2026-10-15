@@ -129,16 +129,16 @@ Open `docs/architecture.svg`. Walk it left to right:
 
 ### 3. The model, honestly (3 min)
 
-Open `backend/models/scorer.json`. It was trained on 2026-10-14 on synthetic labelled data. A role ships only with 100+ samples and holdout AUC ≥ 0.6. Otherwise it falls back to default weights.
+Open `backend/models/scorer.json`. It was trained on 2026-10-15 on synthetic labelled data, and retraining gives exactly the same model (the notebook checks this). A role ships only with 100+ samples and holdout AUC ≥ 0.6. Otherwise it falls back to default weights.
 
 | Role | Samples | Holdout AUC | Shipped |
 | --- | --- | --- | --- |
-| Driver | 554 | 0.759 | Yes |
-| Rider | 1,914 | 0.654 | Yes |
-| Referrer | 306 | 0.671 | Yes |
-| Connector | 52 | 0.795 | No (too few samples) |
+| Driver | 590 | 0.776 | Yes |
+| Rider | 1,879 | 0.712 | Yes |
+| Referrer | 310 | 0.626 | Yes |
+| Connector | 51 | 0.600 | No (too few samples) |
 
-Say: "Connector looks best on AUC, but 52 samples isn't enough to trust, so our quality bar holds it back. That's the bar working." Then show `python -m ml.train_scorer --source real`: it retrains on answered nudges from real communities, with a time-based holdout (train on the past, test on the newest 25%) and features stored at nudge time, so there is no leakage.
+Say: "Connector has only 51 samples, so our quality bar keeps it on default weights. That's the bar working. Referrer is our weakest shipped model, which is why we built the real-data path." Then show `python -m ml.train_scorer --source real`: it retrains on answered nudges from real communities, with a time-based holdout (train on the past, test on the newest 25%) and features stored at nudge time, so there is no leakage.
 
 ### 4. The proof and its limits (2 min)
 

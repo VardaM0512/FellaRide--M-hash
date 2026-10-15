@@ -17,13 +17,18 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session
 
-from ..models import Alert, Car, DriverLicence, Profile, Rating, Report, Trip, TripMessage, TripSeat, User
-from . import activation
+from ..models import (Alert, Car, DriverLicence, PayoutInfo, Profile, Rating, Report, SeatPayment, Trip, TripLocation, TripMessage,
+                      TripPrice, TripSeat, TripSeatCount, User)
+from . import activation, pricing
 from .geo import haversine_km
 
 NEAR_KM = 2.5            # "near you" alerts and search radius around the route
 EARLY_GRACE_MIN = 5
 STALE_AFTER = timedelta(hours=3)   # an open trip this long past its time is expired
+CANCEL_CUTOFF = timedelta(minutes=10)   # after a seat is confirmed, either side may cancel until this long before departure
+TRACK_FROM = timedelta(minutes=30)      # live tracking starts this long before departure (or when the driver sets off)
+TRACK_FRESH = timedelta(minutes=2)      # an older position is not shown as live
+AVG_CITY_KMH = 22                       # for a rough "arriving in" when the phone doesn't report a speed
 RATING_WINDOW = 20
 RECENCY = 0.85
 
@@ -37,7 +42,8 @@ REPORT_REASONS: dict[str, tuple[str, str]] = {
     "harassment": ("safety", "Harassment or inappropriate behaviour"),
     "intoxicated": ("safety", "Seemed drunk or intoxicated"),
     "felt_unsafe": ("safety", "Made me feel unsafe"),
-    "asked_money": ("fraud", "Asked for extra money"),
+    "asked_money": ("fraud", "Asked for more than the agreed contribution"),
+    "didnt_pay": ("reliability", "Didn't pay the agreed contribution"),
     "fake_profile": ("fraud", "Fake profile or a different person"),
     "no_show": ("reliability", "Didn't show up"),
     "left_early": ("reliability", "Left early or without me"),
@@ -140,6 +146,20 @@ def expire_stale(db: Session) -> None:
                .execution_options(synchronize_session="fetch"))
 
 
+# ---------- concurrency: one change to a ride's seats at a time ----------
+# Two approvals of the last seat (a double tap, or the driver on two devices) or a rider approved by two drivers
+# at the same instant could otherwise both pass their "is there room / is the rider free" check. Every action that
+# changes seats first locks the ride's row (SELECT ... FOR UPDATE); approving also locks the rider. Locks are always
+# taken in the same order (ride, then rider) and held until the request commits, so two requests can never wait on
+# each other (no deadlock). SQLite, used in tests and local dev, already runs one write at a time and ignores this.
+def lock_trip(db: Session, trip: Trip) -> Trip:
+    return db.scalars(select(Trip).where(Trip.id == trip.id).with_for_update().execution_options(populate_existing=True)).one()
+
+
+def lock_rider(db: Session, user_id: int) -> None:
+    db.scalars(select(Profile).where(Profile.user_id == user_id).with_for_update()).first()
+
+
 def get_trip(db: Session, tenant_id: int, trip_id: int) -> Trip:
     t = db.get(Trip, trip_id)
     if not t or t.tenant_id != tenant_id:
@@ -155,9 +175,79 @@ def seat_of(db: Session, trip: Trip, user_id: int) -> TripSeat | None:
     return db.scalar(select(TripSeat).where(TripSeat.trip_id == trip.id, TripSeat.rider_id == user_id))
 
 
+def seat_count(db: Session, seat: TripSeat) -> int:
+    """How many seats this request is for (1 unless the rider booked for friends too)."""
+    c = db.get(TripSeatCount, seat.id)
+    return c.count if c else 1
+
+
+def set_seat_count(db: Session, seat: TripSeat, count: int) -> None:
+    c = db.get(TripSeatCount, seat.id)
+    if count == 1 and not c:
+        return
+    if c:
+        c.count = count
+    else:
+        db.add(TripSeatCount(seat_id=seat.id, count=count))
+
+
+def seats_word(n: int) -> str:
+    return f"{n} seat{'s' if n != 1 else ''}"
+
+
 def seats_left(db: Session, trip: Trip) -> int:
-    taken = db.scalar(select(func.count(TripSeat.id)).where(TripSeat.trip_id == trip.id, TripSeat.status.in_(ON_TRIP + ("dropped",))))
-    return max(0, trip.seats_total - taken)
+    taken = db.scalar(
+        select(func.coalesce(func.sum(func.coalesce(TripSeatCount.count, 1)), 0))
+        .select_from(TripSeat).outerjoin(TripSeatCount, TripSeatCount.seat_id == TripSeat.id)
+        .where(TripSeat.trip_id == trip.id, TripSeat.status.in_(ON_TRIP + ("dropped",))))
+    return max(0, trip.seats_total - int(taken or 0))
+
+
+# ---------- cost sharing (see pricing.py) ----------
+def per_km_of(db: Session, trip: Trip) -> float:
+    row = db.get(TripPrice, trip.id)
+    return row.per_km if row else pricing.default_per_km(trip.seats_total)
+
+
+def contribution(db: Session, trip: Trip, rider_km: float, count: int = 1) -> int:
+    return count * pricing.per_seat(per_km_of(db, trip), rider_km, trip.route_km, trip.seats_total)
+
+
+def seat_km(trip: Trip, s: TripSeat) -> float:
+    return pricing.along_route_km(trip.route, s.pickup_lat, s.pickup_lon)
+
+
+def seat_contribution(db: Session, trip: Trip, s: TripSeat) -> int:
+    return contribution(db, trip, seat_km(trip, s), seat_count(db, s))
+
+
+def payment_of(db: Session, s: TripSeat) -> dict:
+    p = db.get(SeatPayment, s.id)
+    return {"rider_paid": bool(p and p.rider_paid_at), "driver_got": bool(p and p.driver_got_at)}
+
+
+def upi_of(db: Session, user_id: int) -> str | None:
+    row = db.get(PayoutInfo, user_id)
+    return row.upi_id if row else None
+
+
+def save_upi(db: Session, user_id: int, upi_id: str) -> None:
+    row = db.get(PayoutInfo, user_id)
+    if not upi_id:
+        if row:
+            db.delete(row)
+        return
+    if row:
+        row.upi_id = upi_id
+    else:
+        db.add(PayoutInfo(user_id=user_id, upi_id=upi_id))
+
+
+def price_out(db: Session, trip: Trip) -> dict:
+    r = per_km_of(db, trip)
+    return {"per_km": r, "free": r <= 0, "suggested_per_km": pricing.default_per_km(trip.seats_total),
+            "max_per_km": pricing.max_per_km(trip.seats_total), "trip_cost": pricing.trip_cost(trip.route_km),
+            "full_route_per_seat": contribution(db, trip, trip.route_km)}
 
 
 def in_group(db: Session, trip: Trip, user_id: int) -> bool:
@@ -178,7 +268,8 @@ def trip_out(db: Session, trip: Trip, viewer_id: int, extra: dict | None = None)
         else:   # riders see the others in the car, never other people's requests
             visible = member and s.status in IN_GROUP
         if visible:
-            rider_rows.append({"seat_id": s.id, "status": s.status, "pickup_name": s.pickup_name,
+            rider_rows.append({"seat_id": s.id, "status": s.status, "pickup_name": s.pickup_name, "seats": seat_count(db, s),
+                               "contribution": seat_contribution(db, trip, s), "payment": payment_of(db, s),
                                "person": person(db, s.rider_id, show_mobile=is_driver and s.status in IN_GROUP)})
     return {
         "id": trip.id, "status": trip.status,
@@ -190,11 +281,31 @@ def trip_out(db: Session, trip: Trip, viewer_id: int, extra: dict | None = None)
         "driver": person(db, trip.driver_id, show_mobile=bool(mine and mine.status in ON_TRIP)),
         "car": car_of(db, trip.driver_id, show_plate=member),
         "you": "driver" if is_driver else "rider" if mine else "none",
-        "my_seat": {"id": mine.id, "status": mine.status} if mine else None,
+        "my_seat": {"id": mine.id, "status": mine.status, "seats": seat_count(db, mine), "contribution": seat_contribution(db, trip, mine),
+                    "payment": payment_of(db, mine)} if mine else None,
+        "price": price_out(db, trip),
+        "pay_to": _pay_to(db, trip, mine),
         "code": trip.code if member else None,
         "riders": rider_rows,
+        "cancel_until": utc(trip.depart_at - CANCEL_CUTOFF).isoformat(),
+        "can_cancel": can_cancel(db, trip, viewer_id),
+        "tracking": tracking_window(trip),
+        "live": live_positions(db, trip, viewer_id) if member else [],
         **(extra or {}),
     }
+
+
+def _pay_to(db: Session, trip: Trip, mine: TripSeat | None) -> dict | None:
+    """For a confirmed rider: the driver's UPI ID and a ready-made payment link for their contribution."""
+    if not mine or mine.status not in ("approved", "boarded", "dropped"):
+        return None
+    amount = seat_contribution(db, trip, mine)
+    upi = upi_of(db, trip.driver_id)
+    if amount <= 0 or not upi:
+        return None
+    name = profile(db, trip.driver_id).name
+    note = f"FellaRide {trip.from_name.split(',')[0]} to {trip.to_name.split(',')[0]}"[:60]
+    return {"upi_id": upi, "amount": amount, "link": pricing.upi_link(upi, name, amount, note)}
 
 
 def active_for(db: Session, user_id: int) -> Trip | None:
@@ -249,8 +360,10 @@ def search(db: Session, tenant_id: int, user_id: int, from_lat: float, from_lon:
                 continue
         if seats_left(db, t) == 0 and not seat_of(db, t, user_id):
             continue
+        rider_km = pricing.along_route_km(t.route, from_lat, from_lon, to_lat, to_lon)
         out.append(trip_out(db, t, user_id, {"pickup_km": round(pickup_km, 2),
-                                              "drop_km": round(drop_km, 2) if drop_km is not None else None}))
+                                              "drop_km": round(drop_km, 2) if drop_km is not None else None,
+                                              "per_seat": contribution(db, t, rider_km), "rider_km": round(rider_km, 1)}))
     out.sort(key=lambda r: r["pickup_km"] + (r["drop_km"] or 0))
     return out
 
@@ -263,6 +376,12 @@ def post_trip(db: Session, user: User, body) -> tuple[Trip, int]:
         raise TripError(409, "You already have a ride in progress. Finish or cancel it first.")
     if not body.licence_confirmed:
         raise TripError(422, "Tick the box to confirm you have a valid driving licence.")
+    if not body.cost_share_confirmed:
+        raise TripError(422, "Tick the box to confirm you're sharing costs, not running a taxi.")
+    cap = pricing.max_per_km(body.seats)
+    if body.price_per_km is not None and body.price_per_km > cap + 1e-9:
+        raise TripError(422, f"That's more than the trip costs. FellaRide is cost-sharing only: with {body.seats} "
+                             f"seat{'s' if body.seats != 1 else ''}, at most Rs {cap:g} per km.")
     depart = utc(body.depart_at)
     if depart < now() - timedelta(minutes=10) or depart > now() + timedelta(days=7):
         raise TripError(422, "Pick a leaving time between now and the next 7 days.")
@@ -274,6 +393,11 @@ def post_trip(db: Session, user: User, body) -> tuple[Trip, int]:
     db.add(t)
     if body.car:
         save_car(db, user.id, body.car.model, body.car.colour, body.car.plate)
+    if body.upi_id:
+        save_upi(db, user.id, body.upi_id)
+    db.flush()
+    if body.price_per_km is not None and abs(body.price_per_km - pricing.default_per_km(body.seats)) > 1e-9:
+        db.add(TripPrice(trip_id=t.id, per_km=round(body.price_per_km, 2)))
     lic = db.get(DriverLicence, user.id) or DriverLicence(user_id=user.id)
     lic.confirmed_at = now()
     db.add(lic)
@@ -302,8 +426,104 @@ def gender_word(g: str) -> str:
     return {"female": "female", "male": "male", "other": "non-binary"}.get(g, "gender not shared")
 
 
+# ---------- cancelling after a seat is confirmed ----------
+def too_late_to_cancel(trip: Trip) -> bool:
+    return now() > utc(trip.depart_at) - CANCEL_CUTOFF
+
+
+def can_cancel(db: Session, trip: Trip, viewer_id: int) -> bool:
+    """Whether the viewer may still back out. A request nobody has approved can always be withdrawn, and a ride
+    with no confirmed riders can always be cancelled; once a seat is confirmed, only until 10 minutes before."""
+    if trip.status not in ("open", "started"):
+        return False
+    if trip.driver_id == viewer_id:
+        rows = seats(db, trip)
+        if any(x.status in RODE for x in rows):
+            return False
+        return not any(x.status == "approved" for x in rows) or not too_late_to_cancel(trip)
+    mine = seat_of(db, trip, viewer_id)
+    if not mine or mine.status not in ("pending", "approved"):
+        return False
+    return mine.status == "pending" or not too_late_to_cancel(trip)
+
+
+def cutoff_words(trip: Trip) -> str:
+    return f"Cancelling closes {int(CANCEL_CUTOFF.total_seconds() // 60)} minutes before departure"
+
+
+# ---------- live tracking ----------
+def tracking_window(trip: Trip) -> bool:
+    """Live tracking runs while the ride is under way, and from 30 minutes before it is due to leave."""
+    if trip.status == "started":
+        return True
+    return trip.status == "open" and now() >= utc(trip.depart_at) - TRACK_FROM
+
+
+def share_location(db: Session, trip: Trip, user: User, lat: float, lon: float, heading: float | None = None,
+                   speed_kmh: float | None = None) -> TripLocation:
+    """Store the newest position of the driver, or of an approved rider who is waiting to be picked up."""
+    if trip.status not in ("open", "started"):
+        raise TripError(409, "This ride has ended, so live location is off.")
+    if trip.driver_id != user.id:
+        mine = seat_of(db, trip, user.id)
+        if not mine or mine.status not in ON_TRIP:
+            raise TripError(403, "Only the driver and confirmed riders share their location.")
+    if not tracking_window(trip):
+        raise TripError(409, "Live location starts 30 minutes before the ride leaves.")
+    loc = db.get(TripLocation, (trip.id, user.id))
+    if not loc:
+        loc = TripLocation(trip_id=trip.id, user_id=user.id, lat=lat, lon=lon)
+        db.add(loc)
+    loc.lat, loc.lon, loc.heading, loc.speed_kmh, loc.updated_at = lat, lon, heading, speed_kmh, now()
+    db.flush()
+    return loc
+
+
+def stop_tracking(db: Session, trip: Trip) -> None:
+    db.execute(TripLocation.__table__.delete().where(TripLocation.trip_id == trip.id))
+
+
+def _eta_min(km: float, speed_kmh: float | None) -> int:
+    v = speed_kmh if speed_kmh and speed_kmh > 5 else AVG_CITY_KMH
+    return max(1, round(km * 1.3 / v * 60))      # x1.3: roads are not straight lines
+
+
+def live_positions(db: Session, trip: Trip, viewer_id: int) -> list[dict]:
+    """What the viewer may see live: riders see the driver (how far, roughly when); the driver sees the
+    confirmed riders still waiting at their pickup. Only fresh points, only while tracking is on."""
+    if not tracking_window(trip):
+        return []
+    rows = {loc.user_id: loc for loc in db.scalars(select(TripLocation).where(TripLocation.trip_id == trip.id))}
+    fresh = {uid: loc for uid, loc in rows.items() if now() - utc(loc.updated_at) <= TRACK_FRESH}
+    out = []
+    if viewer_id == trip.driver_id:
+        for x in seats(db, trip):
+            loc = fresh.get(x.rider_id)
+            if x.status == "approved" and loc:
+                out.append({"user_id": x.rider_id, "role": "rider", "name": profile(db, x.rider_id).name,
+                            "lat": loc.lat, "lon": loc.lon, "heading": loc.heading,
+                            "age_s": int((now() - utc(loc.updated_at)).total_seconds())})
+        return out
+    loc = fresh.get(trip.driver_id)
+    if loc:
+        mine = seat_of(db, trip, viewer_id)
+        item = {"user_id": trip.driver_id, "role": "driver", "name": profile(db, trip.driver_id).name,
+                "lat": loc.lat, "lon": loc.lon, "heading": loc.heading,
+                "age_s": int((now() - utc(loc.updated_at)).total_seconds())}
+        if mine and mine.status == "approved" and mine.pickup_lat is not None:   # still waiting: how far is the car
+            km = haversine_km(loc.lat, loc.lon, mine.pickup_lat, mine.pickup_lon)
+            item["km_to_you"], item["eta_min"] = round(km, 1), _eta_min(km, loc.speed_kmh)
+        else:                                                                    # in the car: how far to the end
+            km = haversine_km(loc.lat, loc.lon, trip.to_lat, trip.to_lon)
+            item["km_to_end"], item["eta_min"] = round(km, 1), _eta_min(km, loc.speed_kmh)
+        out.append(item)
+    return out
+
+
 # ---------- rider: ask, withdraw ----------
-def request_seat(db: Session, trip: Trip, user: User, pickup_name: str, pickup_lat: float | None, pickup_lon: float | None) -> TripSeat:
+def request_seat(db: Session, trip: Trip, user: User, pickup_name: str, pickup_lat: float | None, pickup_lon: float | None,
+                 count: int = 1) -> TripSeat:
+    """Ask for `count` seats (you plus friends travelling with you). Asking again while pending changes the count."""
     p = profile(db, user.id)
     if trip.driver_id == user.id:
         raise TripError(409, "This is your own ride.")
@@ -315,21 +535,36 @@ def request_seat(db: Session, trip: Trip, user: User, pickup_name: str, pickup_l
     s = seat_of(db, trip, user.id)
     if s and s.status == "rejected":
         raise TripError(409, "The driver declined your request for this ride.")
+    if count < 1 or count > trip.seats_total:
+        raise TripError(422, f"This car has {seats_word(trip.seats_total)} in all.")
+    left = seats_left(db, trip)
+    if s and s.status == "pending":
+        if count != seat_count(db, s):   # changing how many seats a waiting request is for
+            if count > left:
+                raise TripError(409, f"Only {seats_word(left)} left on this ride.")
+            set_seat_count(db, s, count)
+            alert(db, trip.driver_id, "seat_request", f"{p.name} now needs {seats_word(count)}", "Approve or decline.", trip.id)
+            db.flush()
+        return s
     if s and s.status != "withdrawn":
         return s
-    if seats_left(db, trip) == 0:
+    if left == 0:
         raise TripError(409, "This ride is full.")
+    if count > left:
+        raise TripError(409, f"Only {seats_word(left)} left on this ride, and you asked for {count}.")
     if s:
         s.status = "pending"
     else:
         s = TripSeat(trip_id=trip.id, rider_id=user.id)
         db.add(s)
+        db.flush()
+    set_seat_count(db, s, count)
     s.pickup_name, s.pickup_lat, s.pickup_lon = (pickup_name or "").strip()[:160], pickup_lat, pickup_lon
     if pickup_lat is not None and pickup_lon is not None:
         p.last_lat, p.last_lon = pickup_lat, pickup_lon
     rating = rating_of(db, user.id)
     stars = f"rated {rating['average']:.1f}" if rating["average"] else "new rider"
-    alert(db, trip.driver_id, "seat_request", f"{p.name} wants a seat",
+    alert(db, trip.driver_id, "seat_request", f"{p.name} wants {'a seat' if count == 1 else seats_word(count)}",
           f"{gender_word(p.gender).capitalize()}, {stars}. Pickup: {s.pickup_name or 'on your route'}. Approve or decline.", trip.id)
     db.flush()
     activation.safe(db, activation.on_seat_requested, trip, s, user)
@@ -341,10 +576,12 @@ def withdraw(db: Session, trip: Trip, user: User) -> TripSeat:
     if not s or s.status not in ("pending", "approved"):
         raise TripError(409, "There is no request of yours to withdraw.")
     was = s.status
+    if was == "approved" and too_late_to_cancel(trip):
+        raise TripError(409, f"{cutoff_words(trip)}. Message or call the driver if something has come up.")
     s.status = "withdrawn"
     if was == "approved":
         alert(db, trip.driver_id, "rider_left", f"{profile(db, user.id).name} can't make it",
-              "They withdrew from your ride, so a seat is free again.", trip.id)
+              f"They cancelled their {seats_word(seat_count(db, s))}, so {'it is' if seat_count(db, s) == 1 else 'they are'} free again.", trip.id)
     db.flush()
     return s
 
@@ -362,6 +599,13 @@ def _seat(db: Session, trip: Trip, seat_id: int) -> TripSeat:
     return s
 
 
+def _contribution_words(db: Session, trip: Trip, s: TripSeat) -> str:
+    amount = seat_contribution(db, trip, s)
+    if amount <= 0:
+        return "It's a free ride. "
+    return f"Your contribution is Rs {amount}, paid to the driver by UPI or cash. "
+
+
 def decide(db: Session, trip: Trip, user: User, seat_id: int, approve: bool) -> TripSeat:
     _driver_only(trip, user)
     s = _seat(db, trip, seat_id)
@@ -375,8 +619,12 @@ def decide(db: Session, trip: Trip, user: User, seat_id: int, approve: bool) -> 
         alert(db, s.rider_id, "declined", f"{driver.name} couldn't take you", "Try another ride going your way.", trip.id)
         db.flush()
         return s
-    if seats_left(db, trip) == 0:
+    lock_rider(db, s.rider_id)   # so two drivers can't both approve the same rider at once
+    left, need = seats_left(db, trip), seat_count(db, s)
+    if left == 0:
         raise TripError(409, "Your car is already full.")
+    if need > left:
+        raise TripError(409, f"They asked for {seats_word(need)} but you have {seats_word(left)} left.")
     busy = active_for(db, s.rider_id)
     if busy and busy.id != trip.id:
         s.status = "withdrawn"
@@ -386,15 +634,18 @@ def decide(db: Session, trip: Trip, user: User, seat_id: int, approve: bool) -> 
     car = car_words(car_of(db, trip.driver_id, show_plate=True))
     alert(db, s.rider_id, "approved", f"{driver.name} approved your seat",
           (f"Look for a {car}. " if car else "") +
-          f"Your boarding code is {trip.code}. Check it matches the driver's before you get in. You can chat or call now.", trip.id)
+          (f"{seats_word(need).capitalize()} held for you. " if need > 1 else "") + _contribution_words(db, trip, s) + f"Your boarding code is {trip.code}. Check it matches the driver's before you get in. You can chat or call now.", trip.id)
     # the rider is set: their other requests are dropped
     for other in db.scalars(select(TripSeat).where(TripSeat.rider_id == s.rider_id, TripSeat.status == "pending", TripSeat.id != s.id)):
         other.status = "withdrawn"
     db.flush()
-    if seats_left(db, trip) == 0:
-        for other in db.scalars(select(TripSeat).where(TripSeat.trip_id == trip.id, TripSeat.status == "pending")):
+    # requests that no longer fit (the car is full, or they need more seats than are left) are declined
+    left = seats_left(db, trip)
+    for other in db.scalars(select(TripSeat).where(TripSeat.trip_id == trip.id, TripSeat.status == "pending")):
+        if seat_count(db, other) > left:
             other.status = "rejected"
-            alert(db, other.rider_id, "declined", "That ride is now full", "Try another ride going your way.", trip.id)
+            alert(db, other.rider_id, "declined", "That ride is now full" if left == 0 else f"Only {seats_word(left)} left on that ride",
+                  "Try another ride going your way.", trip.id)
     db.flush()
     return s
 
@@ -431,6 +682,7 @@ def _finish(db: Session, trip: Trip) -> None:
     """Close the trip: riders never picked up are 'missed'; the driver pays if they left before the time."""
     trip.status, trip.ended_at = "completed", now()
     trip.started_at = trip.started_at or trip.ended_at
+    stop_tracking(db, trip)
     missed = []
     for s in seats(db, trip):
         if s.status == "boarded":
@@ -496,16 +748,50 @@ def cancel(db: Session, trip: Trip, user: User) -> Trip:
         raise TripError(409, "Someone is already in the car. End the ride instead.")
     driver = profile(db, user.id)
     approved = [s for s in rows if s.status == "approved"]
+    if approved and too_late_to_cancel(trip):
+        raise TripError(409, f"{cutoff_words(trip)} once riders are confirmed. Message them in the chat if something has come up.")
     for s in rows:
         if s.status in ("pending", "approved"):
             s.status = "cancelled" if s.status == "approved" else "rejected"   # keeps "was approved" for match rate
             alert(db, s.rider_id, "cancelled", f"{driver.name} cancelled the ride", "Try another ride going your way.", trip.id)
     trip.status, trip.ended_at = "cancelled", now()
+    stop_tracking(db, trip)
     if approved:
         _penalty(db, trip, 2, "cancelled")
     db.flush()
     activation.safe(db, activation.on_trip_cancelled, trip, bool(approved))
     return trip
+
+
+# ---------- settling up (outside the app) ----------
+def mark_paid(db: Session, trip: Trip, user: User) -> SeatPayment:
+    """The rider says they paid their contribution (by UPI or cash). The driver is told."""
+    s = seat_of(db, trip, user.id)
+    if not s or s.status not in ("approved", "boarded", "dropped"):
+        raise TripError(409, "Only a confirmed rider can mark their contribution as paid.")
+    if seat_contribution(db, trip, s) <= 0:
+        raise TripError(409, "This is a free ride, so there's nothing to pay.")
+    p = db.get(SeatPayment, s.id) or SeatPayment(seat_id=s.id)
+    p.rider_paid_at = p.rider_paid_at or now()
+    db.add(p)
+    alert(db, trip.driver_id, "paid", f"{profile(db, user.id).name} says they paid",
+          f"Rs {seat_contribution(db, trip, s)} for this ride. Tap Received once you see it.", trip.id)
+    db.flush()
+    return p
+
+
+def mark_received(db: Session, trip: Trip, user: User, seat_id: int) -> SeatPayment:
+    """The driver confirms a rider's contribution arrived."""
+    _driver_only(trip, user)
+    s = _seat(db, trip, seat_id)
+    if s.status not in ("approved", "boarded", "dropped"):
+        raise TripError(409, "That rider isn't confirmed on this ride.")
+    p = db.get(SeatPayment, s.id) or SeatPayment(seat_id=s.id)
+    p.driver_got_at = p.driver_got_at or now()
+    p.rider_paid_at = p.rider_paid_at or p.driver_got_at
+    db.add(p)
+    db.flush()
+    return p
 
 
 # ---------- chat and driver updates ----------

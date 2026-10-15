@@ -15,7 +15,7 @@ from ..db import get_db
 from ..engine import activation, referrals
 from ..engine import trips as T
 from ..models import Alert, Member, Profile, Rating, Referral, Report, Tenant, Trip, TripSeat, User
-from ..schemas import BroadcastIn, InviteIn, LocationIn, MessageIn, ProfileIn, RatingIn, ReadIn, ReportIn, SeatRequestIn, TripIn
+from ..schemas import BroadcastIn, InviteIn, LocationIn, MessageIn, ProfileIn, RatingIn, ReadIn, ReportIn, SeatRequestIn, TrackIn, TripIn, UpiIn
 from .account import clean_mobile
 
 router = APIRouter(tags=["trips"])
@@ -154,15 +154,44 @@ def get_trip(trip_id: int, user: User = Depends(rider_or_driver), db: Session = 
 
 
 def _action(trip_id: int, user: User, db: Session, fn, *args) -> dict:
-    t = _trip(db, user, trip_id)
-    run(fn, db, t, user, *args)
-    db.commit()
+    t = T.lock_trip(db, _trip(db, user, trip_id))   # one seat change per ride at a time (see engine.trips.lock_trip)
+    try:
+        run(fn, db, t, user, *args)
+        db.commit()
+    except IntegrityError:   # e.g. the same rider's request arriving twice at once: answer with the current state
+        db.rollback()
+        t = _trip(db, user, trip_id)
     return T.trip_out(db, t, user.id, {"to_rate": T.rate_targets(db, t, user.id)})
 
 
 @router.post("/trips/{trip_id}/request", summary="Rider: ask for a seat")
 def request_seat(trip_id: int, body: SeatRequestIn, user: User = Depends(rider_or_driver), db: Session = Depends(get_db)):
-    return _action(trip_id, user, db, T.request_seat, body.pickup_name, body.pickup_lat, body.pickup_lon)
+    return _action(trip_id, user, db, T.request_seat, body.pickup_name, body.pickup_lat, body.pickup_lon, body.seats)
+
+
+@router.post("/trips/{trip_id}/location", summary="Driver or confirmed rider: share your live position on this ride")
+def share_location(trip_id: int, body: TrackIn, user: User = Depends(rider_or_driver), db: Session = Depends(get_db)):
+    t = _trip(db, user, trip_id)
+    run(T.share_location, db, t, user, body.lat, body.lon, body.heading, body.speed_kmh)
+    db.commit()
+    return {"ok": True, "live": T.live_positions(db, t, user.id)}
+
+
+@router.post("/trips/{trip_id}/paid", summary="Rider: I've paid my contribution (by UPI or cash)")
+def mark_paid(trip_id: int, user: User = Depends(rider_or_driver), db: Session = Depends(get_db)):
+    return _action(trip_id, user, db, T.mark_paid)
+
+
+@router.post("/trips/{trip_id}/seats/{seat_id}/received", summary="Driver: this rider's contribution arrived")
+def mark_received(trip_id: int, seat_id: int, user: User = Depends(rider_or_driver), db: Session = Depends(get_db)):
+    return _action(trip_id, user, db, T.mark_received, seat_id)
+
+
+@router.put("/me/upi", summary="Your UPI ID, so riders can pay you their contribution (empty removes it)")
+def set_upi(body: UpiIn, user: User = Depends(rider_or_driver), db: Session = Depends(get_db)):
+    T.save_upi(db, user.id, body.upi_id)
+    db.commit()
+    return {"upi_id": T.upi_of(db, user.id)}
 
 
 @router.post("/trips/{trip_id}/withdraw", summary="Rider: take back your request or approved seat")

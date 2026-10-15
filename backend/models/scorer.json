@@ -10,69 +10,69 @@
   "report": {
     "driver": {
       "shipped": true,
-      "samples": 554,
+      "samples": 590,
       "split": "random",
-      "positive_rate": 0.265,
-      "holdout_auc": 0.759,
+      "positive_rate": 0.288,
+      "holdout_auc": 0.776,
       "weights": {
-        "has_car": -0.0,
-        "corridor_density": -0.039,
-        "recent_rides": 0.562,
-        "social_degree": -0.415,
-        "past_response": 1.995,
-        "bias": -0.0
+        "has_car": -0.004,
+        "corridor_density": 0.344,
+        "recent_rides": 0.138,
+        "social_degree": 0.257,
+        "past_response": 2.213,
+        "bias": -0.004
       },
-      "intercept": -1.758
+      "intercept": -2.088
     },
     "rider": {
       "shipped": true,
-      "samples": 1914,
+      "samples": 1879,
       "split": "random",
-      "positive_rate": 0.294,
-      "holdout_auc": 0.654,
+      "positive_rate": 0.289,
+      "holdout_auc": 0.712,
       "weights": {
         "has_car": 0.0,
-        "corridor_density": 0.498,
-        "recent_rides": 0.84,
-        "social_degree": 0.459,
-        "past_response": 1.003,
-        "bias": -0.004
+        "corridor_density": 0.38,
+        "recent_rides": 0.603,
+        "social_degree": 0.215,
+        "past_response": 1.388,
+        "bias": 0.003
       },
-      "intercept": -1.948
+      "intercept": -1.895
     },
     "connector": {
       "shipped": false,
-      "samples": 52,
+      "samples": 51,
       "split": "random",
-      "positive_rate": 0.231,
-      "holdout_auc": 0.795,
+      "positive_rate": 0.216,
+      "holdout_auc": 0.6,
       "weights": {
-        "has_car": 0.238,
-        "corridor_density": 0.796,
+        "has_car": 0.357,
+        "corridor_density": 0.299,
         "recent_rides": 0.0,
-        "social_degree": -0.252,
-        "past_response": 0.745,
-        "bias": 0.0
+        "social_degree": 0.012,
+        "past_response": 0.403,
+        "bias": -0.0
       },
-      "intercept": -1.391
+      "intercept": -1.579
     },
     "referrer": {
       "shipped": true,
-      "samples": 306,
+      "samples": 310,
       "split": "random",
-      "positive_rate": 0.121,
-      "holdout_auc": 0.671,
+      "positive_rate": 0.135,
+      "holdout_auc": 0.626,
       "weights": {
-        "has_car": -0.269,
-        "corridor_density": 0.299,
-        "recent_rides": 0.733,
-        "social_degree": 0.261,
-        "past_response": 0.445,
-        "bias": 0.0
+        "has_car": -0.401,
+        "corridor_density": 1.202,
+        "recent_rides": 0.405,
+        "social_degree": -0.003,
+        "past_response": 0.647,
+        "bias": -0.001
       },
-      "intercept": -2.375
+      "intercept": -2.558
     }
   },
-  "trained_at": "2026-10-14T18:22:11.875096+00:00",
+  "trained_at": "2026-10-15T07:16:09.373925+00:00",
   "data": "synthetic (labelled)"
 }

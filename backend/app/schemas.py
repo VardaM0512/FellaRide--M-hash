@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 Lat = Field(ge=-90, le=90)
 Lon = Field(ge=-180, le=180)
@@ -115,8 +115,17 @@ class ForgotPasswordIn(BaseModel):
 
 
 class ResetPasswordIn(BaseModel):
-    token: str = Field(min_length=20, max_length=200, pattern=r"^[A-Za-z0-9_\-]+$")
+    """Either the token from the emailed link, or the email address plus the 6-digit code from the same email."""
+    token: str | None = Field(None, min_length=20, max_length=200, pattern=r"^[A-Za-z0-9_\-]+$")
+    email: str | None = Field(None, min_length=5, max_length=200, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+    code: str | None = Field(None, pattern=r"^[0-9]{6}$")
     password: str = Password
+
+    @model_validator(mode="after")
+    def _token_or_code(self):
+        if not self.token and not (self.email and self.code):
+            raise ValueError("Use the link from the email, or enter your email and the 6-digit code.")
+        return self
 
 
 class DeleteAccountIn(BaseModel):
@@ -187,6 +196,13 @@ class CarIn(BaseModel):
     plate: str = Field(min_length=4, max_length=16, pattern=r"^[A-Za-z0-9][A-Za-z0-9 \-]*[A-Za-z0-9]$", description="e.g. KA 01 AB 1234")
 
 
+UPI_PATTERN = r"^[A-Za-z0-9._\-]{2,256}@[A-Za-z][A-Za-z0-9]{1,63}$"
+
+
+class UpiIn(BaseModel):
+    upi_id: str = Field("", max_length=80, pattern=r"^$|" + UPI_PATTERN, description="Empty removes it")
+
+
 class TripIn(BaseModel):
     from_name: str = Place
     from_lat: float = Lat
@@ -201,10 +217,21 @@ class TripIn(BaseModel):
     seats: int = Field(ge=1, le=8)
     car: CarIn | None = Field(None, description="The car you're driving; saved for your next ride")
     licence_confirmed: bool = Field(False, description="The driver ticks that they hold a valid driving licence")
+    cost_share_confirmed: bool = Field(False, description="The driver ticks that they are sharing costs, not running a taxi")
+    price_per_km: float | None = Field(None, ge=0, le=20, description="Rs per km a rider travels; 0 = free; empty = suggested")
+    upi_id: str | None = Field(None, max_length=80, pattern=UPI_PATTERN, description="Where riders can pay you, e.g. name@okbank")
+
+
+class TrackIn(BaseModel):
+    lat: float = Lat
+    lon: float = Lon
+    heading: float | None = Field(None, ge=0, le=360, description="Direction of travel in degrees, if the phone knows it")
+    speed_kmh: float | None = Field(None, ge=0, le=250)
 
 
 class SeatRequestIn(BaseModel):
     pickup_name: str = Field("", max_length=160, pattern=r"^[^<>{}]*$")
+    seats: int = Field(1, ge=1, le=8, description="How many seats you need (you and friends travelling with you)")
     pickup_lat: float | None = Field(None, ge=-90, le=90)
     pickup_lon: float | None = Field(None, ge=-180, le=180)
 

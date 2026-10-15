@@ -144,6 +144,40 @@ def _seed_demo(db: Session, tenant: Tenant) -> None:
 
 
 # ---------- reading ----------
+# ---------- public impact (the welcome page) ----------
+TREE_KG_PER_YEAR = 21.0       # CO2 a mature tree absorbs in a year (a common estimate)
+_impact_cache: dict = {"at": 0.0, "data": None}
+IMPACT_CACHE_SECONDS = 60     # a public, unauthenticated endpoint: recompute at most once a minute
+
+
+@router.get("/impact", summary="Public: what the whole FellaRide network has done so far (for the welcome page)")
+def impact(db: Session = Depends(get_db)):
+    import time
+    if _impact_cache["data"] is not None and time.monotonic() - _impact_cache["at"] < IMPACT_CACHE_SECONDS:
+        return _impact_cache["data"]
+    tenants = list(db.scalars(select(Tenant)))
+    rides = [(t, r) for t in tenants for r in _rides(db, t)]
+    seat_km = sum(r.km * len(r.riders) for _, r in rides)
+    co2 = seat_km * CO2_KG_PER_KM
+    members = db.scalar(select(func.count(Member.id)).where(Member.state != MemberState.DISCOVERED)) or 0
+    synthetic_members = db.scalar(select(func.count(Member.id)).where(Member.state != MemberState.DISCOVERED,
+                                                                        Member.is_synthetic.is_(True))) or 0
+    data = {
+        "people": members,
+        "connections": db.scalar(select(func.count(Connection.id)).where(Connection.kind == "co_ride")) or 0,
+        "rides": len(rides),
+        "seats": sum(len(r.riders) for _, r in rides),
+        "km_shared": round(seat_km),
+        "co2_kg": round(co2),
+        "trees_year": round(co2 / TREE_KG_PER_YEAR),
+        "communities": sum(1 for t in tenants if t.kind != "public"),
+        "includes_demo": synthetic_members > 0,
+        "co2_kg_per_km": CO2_KG_PER_KM,
+    }
+    _impact_cache.update(at=time.monotonic(), data=data)
+    return data
+
+
 @router.get("/overview", summary="Community numbers, this week's challenge and the top riders")
 def overview(actor: Actor = Depends(current_actor), db: Session = Depends(get_db)):
     tenant = _tenant(db, actor)

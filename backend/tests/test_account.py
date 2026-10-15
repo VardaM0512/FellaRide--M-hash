@@ -9,7 +9,7 @@ from .test_trips import ROUTE, alerts, post_trip, signup
 
 def _capture_mail(monkeypatch):
     sent = []
-    monkeypatch.setattr(mailer, "send", lambda to, subject, body: sent.append((to, subject, body)) or True)
+    monkeypatch.setattr(mailer, "send", lambda to, subject, body, html=None: sent.append((to, subject, body, html)) or True)
     return sent
 
 
@@ -38,6 +38,70 @@ def test_forgot_and_reset_password(client, monkeypatch):
     assert client.post(f"{API}/auth/login", json={"email": email, "password": "trip-pass-123"}).status_code == 401
     assert client.post(f"{API}/auth/login", json={"email": email, "password": "brand-new-pass"}).status_code == 200
     assert client.post(f"{API}/auth/reset-password", json={"token": token, "password": "another-pass-1"}).status_code == 400
+
+
+def test_reset_with_the_six_digit_code(client, monkeypatch):
+    sent = _capture_mail(monkeypatch)
+    uid, h, s = signup(client, "Code Reset")
+    email = s["user"]["email"]
+    client.post(f"{API}/auth/forgot-password", json={"email": email})
+    to, subject, text, html = sent[-1]
+    code = re.search(r"code in the app: (\d{6})", text).group(1)
+    assert subject.startswith(code) and code in html and "reset-password?token=" in html   # branded HTML with link and code
+
+    # asking again replaces the first link and code
+    first_token = re.search(r"token=([\w-]+)", text).group(1)
+    client.post(f"{API}/auth/forgot-password", json={"email": email})
+    code = re.search(r"code in the app: (\d{6})", sent[-1][2]).group(1)
+    assert client.post(f"{API}/auth/reset-password", json={"token": first_token, "password": "brand-new-pass"}).status_code == 400
+
+    # neither a token nor email + code is a 422; a wrong code says how many tries are left
+    assert client.post(f"{API}/auth/reset-password", json={"password": "brand-new-pass"}).status_code == 422
+    wrong = "000000" if code != "000000" else "111111"
+    r = client.post(f"{API}/auth/reset-password", json={"email": email, "code": wrong, "password": "brand-new-pass"})
+    assert r.status_code == 400 and "4 tries left" in r.json()["detail"]
+    r = client.post(f"{API}/auth/reset-password", json={"email": email.upper(), "code": code, "password": "brand-new-pass"})
+    assert r.status_code == 200 and r.json()["user"]["id"] == uid
+    assert client.post(f"{API}/auth/login", json={"email": email, "password": "brand-new-pass"}).status_code == 200
+
+
+def test_five_wrong_codes_lock_the_reset(client, monkeypatch):
+    sent = _capture_mail(monkeypatch)
+    _, _, s = signup(client, "Guess Proof")
+    email = s["user"]["email"]
+    client.post(f"{API}/auth/forgot-password", json={"email": email})
+    code = re.search(r"code in the app: (\d{6})", sent[-1][2]).group(1)
+    wrong = "000000" if code != "000000" else "111111"
+    for _ in range(5):
+        client.post(f"{API}/auth/reset-password", json={"email": email, "code": wrong, "password": "brand-new-pass"})
+    # even the right code no longer works
+    r = client.post(f"{API}/auth/reset-password", json={"email": email, "code": code, "password": "brand-new-pass"})
+    assert r.status_code == 400
+
+
+def test_brevo_email_api(monkeypatch):
+    import json as _json
+    from app.config import get_settings
+    calls = []
+
+    class Resp:
+        status = 201
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    def fake_urlopen(req, timeout):
+        calls.append((req.full_url, dict(req.header_items()), _json.loads(req.data)))
+        return Resp()
+
+    s = get_settings()
+    monkeypatch.setattr(s, "brevo_api_key", "test-key")
+    monkeypatch.setattr(s, "mail_from", "fellaride.team@gmail.com")
+    monkeypatch.setattr(mailer.urllib.request, "urlopen", fake_urlopen)
+    assert mailer.send("rider@example.org", "Hello", "plain", "<b>html</b>") is True
+    url, headers, body = calls[0]
+    assert url == mailer.BREVO_URL and headers["Api-key"] == "test-key"
+    assert body["sender"]["email"] == "fellaride.team@gmail.com" and body["to"] == [{"email": "rider@example.org"}]
+    assert body["htmlContent"] == "<b>html</b>" and body["textContent"] == "plain"
 
 
 def test_delete_account(client, monkeypatch):
