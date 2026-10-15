@@ -232,7 +232,7 @@ export function ForgotPassword() {
           <p className="note note-ok" role="status">{sent}</p>
           <p className="muted small">Sent to <strong>{email.trim()}</strong>. Tap the link in the email, or enter the code here.</p>
           <label className="field">6-digit code
-            <input className="code-input" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+            <input className="otp-input" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
               inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} placeholder="••••••" autoFocus aria-describedby="code-hint" />
             <span className="hint" id="code-hint">Not there? Check spam or promotions.</span>
           </label>

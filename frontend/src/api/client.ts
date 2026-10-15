@@ -21,6 +21,7 @@ export const setAuthToken = (t: string | null) => { token = t; };
 const FIELD_NAMES: Record<string, string> = {
   password: 'Password', email: 'Email', name: 'Name', join_code: 'Join code', home_lat: 'Home location',
   home_lon: 'Home location', depart_min: 'Departure time', seats: 'Seats', rating: 'Rating', comment: 'Comment',
+  route_km: 'Route length (km)', route_min: 'Route time (minutes)', depart_at: 'Leaving time', price_per_km: 'Price per km', upi_id: 'UPI ID',
 };
 
 function toError(status: number, body: unknown): ApiError {

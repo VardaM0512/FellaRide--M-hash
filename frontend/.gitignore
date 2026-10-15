@@ -3,3 +3,6 @@ dist/
 .env.local
 .env.*.local
 *.tsbuildinfo
+# Playwright: scratch database, logs, traces and the generated HTML report
+e2e/.tmp/
+e2e/report/

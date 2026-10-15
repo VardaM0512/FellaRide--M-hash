@@ -13,6 +13,7 @@ import { GENDER_LABEL, ratingText, soon, toLocalInput } from '../lib/tripFormat'
 import { defaultPerKm, maxPerKm, perSeat, rate, rupees } from '../lib/pricing';
 
 type Price = 'free' | 'half' | 'suggested';
+const MAX_ROUTE_KM = 2000, MAX_ROUTE_MIN = 3000;   // the same limits the server checks
 const UPI_RE = /^[A-Za-z0-9._-]{2,256}@[A-Za-z][A-Za-z0-9]{1,63}$/;
 
 export default function Offer() {
@@ -54,8 +55,15 @@ export default function Offer() {
     if (!upiOk) return setError(new Error('That UPI ID doesn’t look right. It looks like name@bank.'));
     if (new Date(when).getTime() < Date.now() - 5 * 60_000) return setError(new Error('Pick a time from now on.'));
     setError(null); setBusy(true);
-    const r = await routesBetween(from, to);
-    setRoutes(r); setChosen(0); setBusy(false);
+    const all = await routesBetween(from, to);
+    // the server's limits for one ride (schemas.TripIn); say so here instead of failing at the last step
+    const r = all.filter((x) => x.km <= MAX_ROUTE_KM && x.min <= MAX_ROUTE_MIN).map((x, i) => ({ ...x, id: i }));
+    setBusy(false);
+    if (!r.length) {
+      return setError(new Error(`That trip is about ${Math.round(all[0]?.km ?? 0).toLocaleString()} km. A ride can be up to `
+        + `${MAX_ROUTE_KM.toLocaleString()} km, so check the From and To places.`));
+    }
+    setRoutes(r); setChosen(0);
   }
 
   async function confirm() {

@@ -187,8 +187,12 @@ def expire_stale(db: Session) -> None:
 # at the same instant could otherwise both pass their "is there room / is the rider free" check. Every action that
 # changes seats first locks the ride's row (SELECT ... FOR UPDATE); approving also locks the rider. Locks are always
 # taken in the same order (ride, then rider) and held until the request commits, so two requests can never wait on
-# each other (no deadlock). SQLite, used in tests and local dev, already runs one write at a time and ignores this.
+# each other (no deadlock). SQLite (local dev and tests) ignores FOR UPDATE and only locks when a transaction first
+# writes, so two requests could still both read "1 seat left" there; a no-op UPDATE takes SQLite's write lock up
+# front instead, which makes every other writer wait until this request commits.
 def lock_trip(db: Session, trip: Trip) -> Trip:
+    if db.get_bind().dialect.name == "sqlite":
+        db.execute(update(Trip).where(Trip.id == trip.id).values(id=Trip.id))
     return db.scalars(select(Trip).where(Trip.id == trip.id).with_for_update().execution_options(populate_existing=True)).one()
 
 

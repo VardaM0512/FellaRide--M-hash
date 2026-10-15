@@ -1,5 +1,5 @@
 // One ride, for the driver or a rider. Polls every few seconds so approvals, boarding and messages show up live.
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { ApiError } from '../api/client';
 import { useTrip, useTripStep, type LivePosition, type Person, type Place, type Trip } from '../api/trips';
@@ -288,6 +288,7 @@ export default function TripScreen() {
   const step = useTripStep();
   const [reporting, setReporting] = useState<Person | null>(null);
   const [done, setDone] = useState('');
+  const sending = useRef(false);   // a second tap before the screen redraws must not send the action twice
   // live location: the driver and confirmed riders share theirs while the ride is tracked (from 30 min before)
   const t0 = q.data;
   const share = useLiveShare(id, !!t0 && t0.tracking && (t0.you === 'driver' || ['approved', 'boarded'].includes(t0.my_seat?.status ?? '')));
@@ -303,9 +304,12 @@ export default function TripScreen() {
   const confirmed = isDriver || (!!trip.my_seat && ['approved', 'boarded'].includes(trip.my_seat.status));
 
   const act = (path: string, ok?: string, body?: unknown) => {
+    if (sending.current) return;
+    sending.current = true;
     setDone('');
     step.mutate({ tripId: trip.id, path, body }, {
       onSuccess: () => { if (ok) { setDone(ok); announce(ok); } },
+      onSettled: () => { sending.current = false; },
     });
   };
 

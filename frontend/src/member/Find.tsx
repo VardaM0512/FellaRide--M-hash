@@ -1,7 +1,7 @@
 // Find a ride: your pickup (and drop, optional) -> every ride whose route passes close to both,
 // with the driver's name, gender, rating and car. Compare them, sort them, and ask one or several drivers
 // for a seat right from the list: the first to approve gets you, and the other requests are withdrawn.
-import { useState, type FormEvent } from 'react';
+import { useRef, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { searchTrips, useTripStep, type Place, type Trip } from '../api/trips';
 import MapView, { type MapPoint } from '../components/MapView';
@@ -37,6 +37,7 @@ export default function Find() {
   const uid = session?.user.id;
   const [from, setFrom] = useState<Place | null>(() => savedPickup(uid));
   const [punched, setPunched] = useState<number | null>(null);
+  const asking = useRef(false);
   const [to, setTo] = useState<Place | null>(null);
   const [active, setActive] = useState<'from' | 'to'>('from');
   const [when, setWhen] = useState('');
@@ -67,6 +68,8 @@ export default function Find() {
   /** Ask for a seat: the ticket is punched while the request goes out. You stay on the list, so you can ask
    *  other drivers too; whoever approves first gets you. */
   async function ask(trip: Trip) {
+    if (asking.current) return;   // a double tap sends one request
+    asking.current = true;
     setPunched(trip.id);
     navigator.vibrate?.(12);
     try {
@@ -76,7 +79,7 @@ export default function Find() {
       ]);
       setResults((rs) => rs && rs.map((t) => (t.id === trip.id ? { ...t, ...updated, pickup_km: t.pickup_km, drop_km: t.drop_km } : t)));
       announce(`${need === 1 ? 'Seat' : `${need} seats`} requested from ${trip.driver.name}. You can ask other drivers too.`);
-    } catch (err) { setError(err); } finally { setPunched(null); }
+    } catch (err) { setError(err); } finally { setPunched(null); asking.current = false; }
   }
 
   const points: MapPoint[] = [

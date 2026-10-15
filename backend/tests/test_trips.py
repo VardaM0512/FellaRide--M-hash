@@ -372,3 +372,21 @@ def test_cost_sharing_contribution_cap_and_settling_up(client):
     assert pricing.per_seat(0, 10, 10, 3) == 0
     client.post(f"{API}/trips/{tid}/withdraw", headers=rh)
     client.post(f"{API}/trips/{tid}/cancel", headers=dh)
+
+
+def test_parallel_approvals_of_the_last_seat_approve_exactly_one(client):
+    """Regression (e2e G46): on SQLite the FOR UPDATE row lock is a no-op, and 5 parallel approvals of a 1-seat
+    ride all succeeded. lock_trip now takes SQLite's write lock up front, so they queue like on Postgres."""
+    from concurrent.futures import ThreadPoolExecutor
+    d, dh, _ = signup(client, "Parallel D.")
+    tid = post_trip(client, dh, seats=1)["id"]
+    for i in range(5):
+        _, rh, _ = signup(client, f"Parallel R{i}")
+        client.post(f"{API}/trips/{tid}/request", headers=rh, json={})
+    seat_ids = [r["seat_id"] for r in client.get(f"{API}/trips/{tid}", headers=dh).json()["riders"]]
+    with ThreadPoolExecutor(5) as pool:
+        codes = list(pool.map(lambda s: client.post(f"{API}/trips/{tid}/seats/{s}/approve", headers=dh).status_code, seat_ids))
+    assert sorted(codes) == [200, 409, 409, 409, 409], codes
+    t = client.get(f"{API}/trips/{tid}", headers=dh).json()
+    assert t["seats_left"] == 0 and sum(r["status"] == "approved" for r in t["riders"]) == 1
+    client.post(f"{API}/trips/{tid}/cancel", headers=dh)
