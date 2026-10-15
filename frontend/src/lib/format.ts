@@ -5,6 +5,26 @@ export const hhmm = (min: number) => `${String(Math.floor(min / 60)).padStart(2,
 export const pct = (fraction: number) => `${Math.round(fraction * 100)}%`;
 export const firstName = (name: string) => name.split(' ')[0];
 
+// Same rules as the backend (schemas.Mobile, then account.clean_mobile + valid_mobile), so a bad number is flagged
+// at the field as soon as you leave it instead of only after submitting. Empty is left to the form's own check.
+const MOBILE_FORMAT = /^\+?[0-9][0-9 -]{5,18}[0-9]$/;
+export const MOBILE_HINT = 'Enter a valid mobile number, e.g. +91 98765 43210.';
+export function mobileError(value: string): string | null {
+  const raw = value.trim();
+  if (!raw) return null;
+  if (raw.length > 20 || !MOBILE_FORMAT.test(raw)) return MOBILE_HINT;
+  let digits = raw.replace(/\D/g, '');
+  let m = digits;
+  if (raw.startsWith('+')) {
+    if (digits.startsWith('910') && digits.length === 13) digits = '91' + digits.slice(3);   // +91 0XXXXXXXXXX
+    m = '+' + digits;
+  } else if (digits.length === 10) m = '+91' + digits;
+  else if (digits.length === 11 && digits.startsWith('0')) m = '+91' + digits.slice(1);
+  else if (digits.length === 12 && digits.startsWith('91')) m = '+' + digits;
+  const ok = m.startsWith('+91') ? m.length === 13 && '6789'.includes(m[3]) : m.startsWith('+') && m.length - 1 >= 8 && m.length - 1 <= 15;
+  return ok ? null : MOBILE_HINT;
+}
+
 export const STATE_LABEL: Record<MemberState, string> = {
   discovered: 'Not joined yet',
   registered: 'Joined',
