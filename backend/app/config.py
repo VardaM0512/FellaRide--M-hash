@@ -54,10 +54,6 @@ class Settings(BaseSettings):
     smtp_user: str = ""
     smtp_password: str = ""
     smtp_from: str = ""                     # defaults to smtp_user
-    # Brevo's email API (works on Render's free plan, which blocks SMTP ports). When set, used instead of SMTP.
-    brevo_api_key: str = ""
-    mail_from: str = ""                     # the sender address you verified in Brevo (a Gmail address works)
-    mail_from_name: str = "FellaRide"
     # Where the web app lives, for links in emails (no trailing slash).
     app_url: str = "http://localhost:5173"
     # Member app -> activation engine bridge: raise its errors instead of logging them (tests turn this on).

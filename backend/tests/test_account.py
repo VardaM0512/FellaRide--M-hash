@@ -79,31 +79,6 @@ def test_five_wrong_codes_lock_the_reset(client, monkeypatch):
     assert r.status_code == 400
 
 
-def test_brevo_email_api(monkeypatch):
-    import json as _json
-    from app.config import get_settings
-    calls = []
-
-    class Resp:
-        status = 201
-        def __enter__(self): return self
-        def __exit__(self, *a): return False
-
-    def fake_urlopen(req, timeout):
-        calls.append((req.full_url, dict(req.header_items()), _json.loads(req.data)))
-        return Resp()
-
-    s = get_settings()
-    monkeypatch.setattr(s, "brevo_api_key", "test-key")
-    monkeypatch.setattr(s, "mail_from", "fellaride.team@gmail.com")
-    monkeypatch.setattr(mailer.urllib.request, "urlopen", fake_urlopen)
-    assert mailer.send("rider@example.org", "Hello", "plain", "<b>html</b>") is True
-    url, headers, body = calls[0]
-    assert url == mailer.BREVO_URL and headers["Api-key"] == "test-key"
-    assert body["sender"]["email"] == "fellaride.team@gmail.com" and body["to"] == [{"email": "rider@example.org"}]
-    assert body["htmlContent"] == "<b>html</b>" and body["textContent"] == "plain"
-
-
 def test_delete_account(client, monkeypatch):
     sent = _capture_mail(monkeypatch)
     d, dh, ds = signup(client, "Leaving Driver", "male")
