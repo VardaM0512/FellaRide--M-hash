@@ -2,13 +2,14 @@
 // ProfileForm is also the one-time setup for demo accounts, which start without a gender or mobile.
 import { useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { deleteAccount } from '../api/hooks';
 import { saveProfile, shareLocation, useMyTrips, type Gender } from '../api/trips';
 import { useImpact, type Badge } from '../api/community';
 import { Avatar, CountUp, ErrorNote, Icon, Skeleton } from '../components/ui';
 import { notificationsSupported } from '../lib/notify';
 import { currentPosition } from '../lib/places';
 import { useSession } from '../lib/session';
-import { GENDER_LABEL, GENDER_OPTIONS, ratingText } from '../lib/tripFormat';
+import { GENDER_LABEL, GENDER_OPTIONS, carText, ratingText } from '../lib/tripFormat';
 import { TripRow } from './Home';
 
 export function ProfileForm({ onSaved, submitLabel = 'Save' }: { onSaved?: () => void; submitLabel?: string }) {
@@ -127,6 +128,45 @@ function Impact() {
   );
 }
 
+/** Delete account: asks for the password, then cancels open rides, removes personal details and signs out. */
+function DeleteAccount() {
+  const { signOut } = useSession();
+  const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState<unknown>(null);
+  const [busy, setBusy] = useState(false);
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    if (!window.confirm('Delete your account for good? This can’t be undone.')) return;
+    setBusy(true); setError(null);
+    try {
+      await deleteAccount(password);
+      signOut();
+      navigate('/welcome', { replace: true });
+    } catch (err) { setError(err); setBusy(false); }
+  }
+  if (!open) return <button className="btn-link small" style={{ alignSelf: 'center', color: 'var(--chilli)' }} onClick={() => setOpen(true)}>Delete my account</button>;
+  return (
+    <form className="card stack" onSubmit={submit} aria-labelledby="del-h" noValidate>
+      <h3 id="del-h">Delete your account</h3>
+      <ul className="small" style={{ paddingLeft: 18, margin: 0 }}>
+        <li>Rides you’re driving are cancelled, and your seat requests are withdrawn. Everyone involved is told.</li>
+        <li>Your name, email, mobile number, car and location are removed. Past rides and ratings stay for the other people in them, shown as “Deleted user”.</li>
+        <li>You can sign up again later with the same email or mobile number.</li>
+      </ul>
+      <label className="field">Your password, to confirm
+        <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
+      </label>
+      <ErrorNote error={error} />
+      <div className="btn-row">
+        <button type="button" className="btn btn-quiet" onClick={() => { setOpen(false); setPassword(''); setError(null); }}>Keep my account</button>
+        <button className="btn btn-danger" disabled={busy || !password}>{busy ? 'Deleting…' : 'Delete account'}</button>
+      </div>
+    </form>
+  );
+}
+
 export default function You() {
   const { session, signOut } = useSession();
   const navigate = useNavigate();
@@ -148,6 +188,7 @@ export default function You() {
           <dl className="facts">
             <dt>Gender</dt><dd>{GENDER_LABEL[p.gender]}</dd>
             <dt>Mobile</dt><dd>{p.mobile}</dd>
+            {p.car && <><dt>Car</dt><dd>{carText(p.car)}</dd></>}
             <dt>Rating</dt><dd>{ratingText(p.rating)}</dd>
             <dt>Community</dt><dd>{session?.tenant.name}</dd>
           </dl>
@@ -177,6 +218,8 @@ export default function You() {
         <p className="small muted">Signed in as {session?.user.email.startsWith('demo-member-') ? `${p?.name} (demo account)` : session?.user.email}</p>
         {session?.tenant.synthetic && <button className="btn btn-quiet btn-block" onClick={() => { signOut(); navigate('/demo'); }}>Switch demo person</button>}
         <button className="btn btn-danger btn-block" onClick={() => { signOut(); navigate('/welcome'); }}>Sign out</button>
+        {/* demo people have no password of their own, so there's nothing to delete */}
+        {!session?.user.email.startsWith('demo-member-') && <DeleteAccount />}
       </section>
     </>
   );

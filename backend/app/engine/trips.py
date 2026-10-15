@@ -17,7 +17,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session
 
-from ..models import Alert, Profile, Rating, Report, Trip, TripMessage, TripSeat, User
+from ..models import Alert, Car, DriverLicence, Profile, Rating, Report, Trip, TripMessage, TripSeat, User
 from . import activation
 from .geo import haversine_km
 
@@ -106,6 +106,30 @@ def person(db: Session, user_id: int, show_mobile: bool = False) -> dict:
     return out
 
 
+def car_of(db: Session, user_id: int, show_plate: bool = False) -> dict | None:
+    """The driver's car. Model and colour help riders choose a ride; the number plate is for finding the right
+    car at pickup, so like the mobile number it is shown only to the driver and approved riders."""
+    c = db.get(Car, user_id)
+    if not c:
+        return None
+    return {"model": c.model, "colour": c.colour, "plate": c.plate if show_plate else None}
+
+
+def save_car(db: Session, user_id: int, model: str, colour: str, plate: str) -> Car:
+    c = db.get(Car, user_id) or Car(user_id=user_id)
+    c.model, c.colour = model.strip(), colour.strip()
+    c.plate = " ".join(plate.upper().replace("-", " ").split())   # "ka-01-ab-1234" -> "KA 01 AB 1234"
+    db.add(c)
+    return c
+
+
+def car_words(car: dict | None) -> str:
+    """'White Maruti Swift (KA 01 AB 1234)' for alerts; empty when the driver hasn't added a car."""
+    if not car:
+        return ""
+    return f"{car['colour']} {car['model']}" + (f" ({car['plate']})" if car.get("plate") else "")
+
+
 def alert(db: Session, user_id: int, kind: str, title: str, body: str = "", trip_id: int | None = None) -> None:
     db.add(Alert(user_id=user_id, kind=kind, title=title[:160], body=body[:400], trip_id=trip_id))
 
@@ -164,6 +188,7 @@ def trip_out(db: Session, trip: Trip, viewer_id: int, extra: dict | None = None)
         "route": trip.route, "route_km": trip.route_km, "route_min": trip.route_min,
         "seats_total": trip.seats_total, "seats_left": seats_left(db, trip),
         "driver": person(db, trip.driver_id, show_mobile=bool(mine and mine.status in ON_TRIP)),
+        "car": car_of(db, trip.driver_id, show_plate=member),
         "you": "driver" if is_driver else "rider" if mine else "none",
         "my_seat": {"id": mine.id, "status": mine.status} if mine else None,
         "code": trip.code if member else None,
@@ -236,6 +261,8 @@ def post_trip(db: Session, user: User, body) -> tuple[Trip, int]:
     p = profile(db, user.id)
     if active_for(db, user.id):
         raise TripError(409, "You already have a ride in progress. Finish or cancel it first.")
+    if not body.licence_confirmed:
+        raise TripError(422, "Tick the box to confirm you have a valid driving licence.")
     depart = utc(body.depart_at)
     if depart < now() - timedelta(minutes=10) or depart > now() + timedelta(days=7):
         raise TripError(422, "Pick a leaving time between now and the next 7 days.")
@@ -245,6 +272,11 @@ def post_trip(db: Session, user: User, body) -> tuple[Trip, int]:
              depart_at=depart, route=route, route_km=round(body.route_km, 1), route_min=body.route_min,
              seats_total=body.seats, code=f"{secrets.randbelow(10000):04d}")
     db.add(t)
+    if body.car:
+        save_car(db, user.id, body.car.model, body.car.colour, body.car.plate)
+    lic = db.get(DriverLicence, user.id) or DriverLicence(user_id=user.id)
+    lic.confirmed_at = now()
+    db.add(lic)
     p.last_lat, p.last_lon = body.from_lat, body.from_lon
     db.flush()
     sent = notify_nearby(db, t, p)
@@ -267,7 +299,7 @@ def notify_nearby(db: Session, trip: Trip, driver: Profile) -> int:
 
 
 def gender_word(g: str) -> str:
-    return {"female": "woman", "male": "man", "other": "non-binary"}.get(g, "gender not shared")
+    return {"female": "female", "male": "male", "other": "non-binary"}.get(g, "gender not shared")
 
 
 # ---------- rider: ask, withdraw ----------
@@ -351,7 +383,9 @@ def decide(db: Session, trip: Trip, user: User, seat_id: int, approve: bool) -> 
         db.flush()
         raise TripError(409, "This rider has just joined another ride.")
     s.status = "approved"
+    car = car_words(car_of(db, trip.driver_id, show_plate=True))
     alert(db, s.rider_id, "approved", f"{driver.name} approved your seat",
+          (f"Look for a {car}. " if car else "") +
           f"Your boarding code is {trip.code}. Check it matches the driver's before you get in. You can chat or call now.", trip.id)
     # the rider is set: their other requests are dropped
     for other in db.scalars(select(TripSeat).where(TripSeat.rider_id == s.rider_id, TripSeat.status == "pending", TripSeat.id != s.id)):

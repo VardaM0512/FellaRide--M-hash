@@ -7,6 +7,8 @@ export type Gender = 'female' | 'male' | 'other' | 'unsaid';
 export interface Rating { average: number | null; count: number }
 export interface Person { id: number; name: string; gender: Gender; rating: Rating; mobile?: string | null }
 export interface Place { name: string; lat: number; lon: number }
+/** The driver's car. `plate` is null until you're approved for the ride. */
+export interface Car { model: string; colour: string; plate: string | null }
 
 export type TripStatus = 'open' | 'started' | 'completed' | 'cancelled' | 'expired';
 export type SeatStatus = 'pending' | 'approved' | 'rejected' | 'withdrawn' | 'boarded' | 'dropped' | 'missed' | 'cancelled';
@@ -25,6 +27,7 @@ export interface Trip {
   seats_total: number;
   seats_left: number;
   driver: Person;
+  car: Car | null;
   you: 'driver' | 'rider' | 'none';
   my_seat: { id: number; status: SeatStatus } | null;
   code: string | null;
@@ -40,11 +43,13 @@ export interface Alert { id: number; kind: string; title: string; body: string; 
 export interface Alerts { unread: number; items: Alert[] }
 export interface ChatMessage { id: number; user_id: number; name: string; body: string; created_at: string }
 export interface ReportReason { code: string; category: 'safety' | 'fraud' | 'reliability' | 'conduct' | 'other'; label: string }
-export interface Profile { name: string; gender: Gender; mobile: string | null; rating: Rating }
+export interface Profile { name: string; gender: Gender; mobile: string | null; rating: Rating; car?: Car | null }
 
 export interface TripInput {
   from_name: string; from_lat: number; from_lon: number; to_name: string; to_lat: number; to_lon: number;
   depart_at: string; route: [number, number][]; route_km: number; route_min: number; seats: number;
+  car: { model: string; colour: string; plate: string };
+  licence_confirmed: boolean;
 }
 
 function useUserKey() {

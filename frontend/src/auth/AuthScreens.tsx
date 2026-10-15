@@ -1,6 +1,6 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { createCommunity, demoLogin, login, useDemoAccounts, usePublicCommunities } from '../api/hooks';
+import { createCommunity, demoLogin, forgotPassword, login, resetPassword, useDemoAccounts, usePublicCommunities } from '../api/hooks';
 import { signup, type Gender, type Place } from '../api/trips';
 import MapView from '../components/MapView';
 import PlaceField from '../components/PlaceField';
@@ -145,9 +145,84 @@ export function SignIn() {
       <form onSubmit={submit} className="stack-lg" noValidate>
         <label className="field">Email or mobile number<input autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required /></label>
         <PasswordField label="Password" value={password} onChange={setPassword} autoComplete="current-password" />
+        <p className="small" style={{ marginTop: -8, textAlign: 'right' }}>
+          <Link to={`/forgot-password${email.includes('@') ? `?email=${encodeURIComponent(email)}` : ''}`} style={{ fontWeight: 600 }}>Forgot password?</Link>
+        </p>
         <ErrorNote error={error} />
         <button className="btn btn-primary btn-block" disabled={busy || !email || !password}>{busy ? 'Signing in…' : 'Sign in'}</button>
         <p className="small muted" style={{ textAlign: 'center' }}>New here? <Link to="/signup" style={{ fontWeight: 700 }}>Create an account</Link></p>
+      </form>
+    </Shell>
+  );
+}
+
+export function ForgotPassword() {
+  const [params] = useSearchParams();
+  const [email, setEmail] = useState(params.get('email') || '');
+  const [sent, setSent] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
+  const [busy, setBusy] = useState(false);
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true); setError(null);
+    try { setSent((await forgotPassword(email.trim())).message); } catch (err) { setError(err); } finally { setBusy(false); }
+  }
+  return (
+    <Shell title="Forgot password" back="/signin">
+      {sent ? (
+        <div className="stack-lg">
+          <p className="note note-ok" role="status">{sent}</p>
+          <p className="small muted">Didn’t get it? Check your spam folder, or try again in a minute.</p>
+          <button className="btn btn-quiet btn-block" onClick={() => setSent(null)}>Send it again</button>
+          <Link to="/signin" className="btn btn-primary btn-block">Back to sign in</Link>
+        </div>
+      ) : (
+        <form onSubmit={submit} className="stack-lg" noValidate>
+          <p className="muted">Enter the email you signed up with. We’ll send you a link to set a new password.</p>
+          <label className="field">Email<input type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></label>
+          <ErrorNote error={error} />
+          <button className="btn btn-primary btn-block" disabled={busy || !email.includes('@')}>{busy ? 'Sending…' : 'Send reset link'}</button>
+        </form>
+      )}
+    </Shell>
+  );
+}
+
+export function ResetPassword() {
+  const [params] = useSearchParams();
+  const token = params.get('token') || '';
+  const { signIn } = useSession();
+  const navigate = useNavigate();
+  const [password, setPassword] = useState('');
+  const [again, setAgain] = useState('');
+  const [error, setError] = useState<unknown>(null);
+  const [busy, setBusy] = useState(false);
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    if (password.length < 8) return setError(new Error('Use at least 8 characters for your password.'));
+    if (password !== again) return setError(new Error('The two passwords don’t match.'));
+    setBusy(true); setError(null);
+    try {
+      const s = await resetPassword(token, password);
+      signIn(s);
+      navigate(s.user.role === 'admin' ? '/dashboard' : '/', { replace: true });
+    } catch (err) { setError(err); } finally { setBusy(false); }
+  }
+  if (!token) {
+    return (
+      <Shell title="Set a new password" back="/signin">
+        <p className="note note-info">This page needs the link from your reset email. <Link to="/forgot-password">Ask for a new link</Link>.</p>
+      </Shell>
+    );
+  }
+  return (
+    <Shell title="Set a new password" back="/signin">
+      <form onSubmit={submit} className="stack-lg" noValidate>
+        <PasswordField label="New password" value={password} onChange={setPassword} autoComplete="new-password" hint="At least 8 characters." />
+        <PasswordField label="Type it again" value={again} onChange={setAgain} autoComplete="new-password" />
+        <ErrorNote error={error} />
+        <button className="btn btn-primary btn-block" disabled={busy || !password || !again}>{busy ? 'Saving…' : 'Save and sign in'}</button>
+        <p className="small muted" style={{ textAlign: 'center' }}>Link expired? <Link to="/forgot-password" style={{ fontWeight: 700 }}>Send a new one</Link></p>
       </form>
     </Shell>
   );

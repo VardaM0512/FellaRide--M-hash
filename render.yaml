@@ -27,6 +27,14 @@ services:
         value: "true"
       - key: FELLARIDE_DEFAULT_JOIN_CODE
         value: DEMO2026
+      - key: FELLARIDE_APP_URL              # the web app's URL, used in forgot-password links, e.g. https://fellaride-web.onrender.com
+        sync: false
+      - key: FELLARIDE_SMTP_HOST            # optional: smtp.gmail.com to email reset links (empty = links only in the API log)
+        sync: false
+      - key: FELLARIDE_SMTP_USER            # optional: the Gmail address that sends them
+        sync: false
+      - key: FELLARIDE_SMTP_PASSWORD        # optional: a Gmail app password
+        sync: false
 
   # React web app: frontend/Dockerfile (Vite build served by nginx)
   - type: web

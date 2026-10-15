@@ -24,7 +24,7 @@ def post_trip(client, h, minutes=30, seats=2):
     when = (datetime.now(timezone.utc) + timedelta(minutes=minutes)).isoformat()
     r = client.post(f"{API}/trips", headers=h, json={
         "from_name": "Lakeview", "from_lat": 12.97, "from_lon": 77.55, "to_name": "Tech Park", "to_lat": 12.97, "to_lon": 77.65,
-        "depart_at": when, "route": ROUTE, "route_km": 11.2, "route_min": 25, "seats": seats})
+        "depart_at": when, "route": ROUTE, "route_km": 11.2, "route_min": 25, "seats": seats, "licence_confirmed": True})
     assert r.status_code == 201, r.text
     return r.json()
 
@@ -164,7 +164,7 @@ def test_full_car_cancel_and_isolation(client, community):
     # the car is full: the other request is declined automatically, and a second post is blocked
     assert client.get(f"{API}/trips/{trip['id']}", headers=h2).json()["my_seat"]["status"] == "rejected"
     again = {"from_name": "A", "from_lat": 12.97, "from_lon": 77.55, "to_name": "B", "to_lat": 12.97, "to_lon": 77.65,
-             "depart_at": datetime.now(timezone.utc).isoformat(), "route": ROUTE, "route_km": 11, "route_min": 25, "seats": 1}
+             "depart_at": datetime.now(timezone.utc).isoformat(), "route": ROUTE, "route_km": 11, "route_min": 25, "seats": 1, "licence_confirmed": True}
     assert client.post(f"{API}/trips", headers=dh, json=again).status_code == 409
     # cancelling after approving someone costs the driver
     assert client.post(f"{API}/trips/{trip['id']}/cancel", headers=dh).json()["status"] == "cancelled"
@@ -184,3 +184,45 @@ def test_organiser_broadcast_and_overview(client, community):
     assert client.post(f"{API}/tenants/{tid}/broadcast", headers=h, json={"title": "spam"}).status_code == 403
     ov = client.get(f"{API}/tenants/{tid}/trips-overview", headers=admin).json()
     assert {"trips", "riders_carried", "reports", "open_reports_by_category"} <= set(ov)
+
+
+def test_car_details_model_first_plate_after_approval(client):
+    d, dh, _ = signup(client, "Kabir C.", "male")
+    r1, h1, _ = signup(client, "Nisha C.")
+    when = (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat()
+    bad = client.post(f"{API}/trips", headers=dh, json={
+        "from_name": "Lakeview", "from_lat": 12.97, "from_lon": 77.55, "to_name": "Tech Park", "to_lat": 12.97, "to_lon": 77.65,
+        "depart_at": when, "route": ROUTE, "route_km": 11.2, "route_min": 25, "seats": 2, "licence_confirmed": True,
+        "car": {"model": "Maruti Swift", "colour": "White", "plate": "<script>"}})
+    assert bad.status_code == 422
+    no_licence = client.post(f"{API}/trips", headers=dh, json={
+        "from_name": "Lakeview", "from_lat": 12.97, "from_lon": 77.55, "to_name": "Tech Park", "to_lat": 12.97, "to_lon": 77.65,
+        "depart_at": when, "route": ROUTE, "route_km": 11.2, "route_min": 25, "seats": 2,
+        "car": {"model": "Maruti Swift", "colour": "White", "plate": "KA 01 AB 1234"}})
+    assert no_licence.status_code == 422 and "driving licence" in no_licence.json()["detail"]
+    r = client.post(f"{API}/trips", headers=dh, json={
+        "from_name": "Lakeview", "from_lat": 12.97, "from_lon": 77.55, "to_name": "Tech Park", "to_lat": 12.97, "to_lon": 77.65,
+        "depart_at": when, "route": ROUTE, "route_km": 11.2, "route_min": 25, "seats": 2, "licence_confirmed": True,
+        "car": {"model": "Maruti Swift", "colour": "White", "plate": "ka-01-ab-1234"}})
+    assert r.status_code == 201, r.text
+    trip = r.json()
+    tid = trip["id"]
+    assert trip["car"] == {"model": "Maruti Swift", "colour": "White", "plate": "KA 01 AB 1234"}   # the driver sees it all
+
+    # before approval: model and colour, no number plate
+    found = client.get(f"{API}/trips/search", headers=h1, params={"from_lat": 12.971, "from_lon": 77.57}).json()
+    assert found[0]["car"] == {"model": "Maruti Swift", "colour": "White", "plate": None}
+    client.post(f"{API}/trips/{tid}/request", headers=h1, json={})
+    assert client.get(f"{API}/trips/{tid}", headers=h1).json()["car"]["plate"] is None
+
+    # approved: the plate shows, and the approval alert says which car to look for
+    seat = client.get(f"{API}/trips/{tid}", headers=dh).json()["riders"][0]["seat_id"]
+    client.post(f"{API}/trips/{tid}/seats/{seat}/approve", headers=dh)
+    assert client.get(f"{API}/trips/{tid}", headers=h1).json()["car"]["plate"] == "KA 01 AB 1234"
+    approved = next(a for a in alerts(client, h1) if a["kind"] == "approved")
+    assert "White Maruti Swift (KA 01 AB 1234)" in approved["body"]
+
+    # the car is remembered for the driver's next sign-in
+    me = client.post(f"{API}/auth/login", json={"email": client.get(f"{API}/auth/me", headers=dh).json()["user"]["email"],
+                                                "password": "trip-pass-123"}).json()
+    assert me["profile"]["car"]["plate"] == "KA 01 AB 1234"

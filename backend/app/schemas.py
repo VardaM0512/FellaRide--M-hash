@@ -110,6 +110,19 @@ class LoginIn(BaseModel):
     password: str = Field(min_length=1, max_length=72)
 
 
+class ForgotPasswordIn(BaseModel):
+    email: str = Email
+
+
+class ResetPasswordIn(BaseModel):
+    token: str = Field(min_length=20, max_length=200, pattern=r"^[A-Za-z0-9_\-]+$")
+    password: str = Password
+
+
+class DeleteAccountIn(BaseModel):
+    password: str = Field(min_length=1, max_length=72, description="Your current password, to confirm")
+
+
 class DemoLoginIn(BaseModel):
     tenant_id: int
     member_id: int
@@ -167,6 +180,12 @@ class LocationIn(BaseModel):
     lon: float = Lon
 
 
+class CarIn(BaseModel):
+    model: str = Field(min_length=2, max_length=60, pattern=r"^[^<>{}\[\]\\]+$", description="e.g. Maruti Swift")
+    colour: str = Field(min_length=2, max_length=30, pattern=r"^[^<>{}\[\]\\]+$", description="e.g. White")
+    plate: str = Field(min_length=4, max_length=16, pattern=r"^[A-Za-z0-9][A-Za-z0-9 \-]*[A-Za-z0-9]$", description="e.g. KA 01 AB 1234")
+
+
 class TripIn(BaseModel):
     from_name: str = Place
     from_lat: float = Lat
@@ -179,6 +198,8 @@ class TripIn(BaseModel):
     route_km: float = Field(ge=0, le=2000)
     route_min: int = Field(ge=0, le=3000)
     seats: int = Field(ge=1, le=8)
+    car: CarIn | None = Field(None, description="The car you're driving; saved for your next ride")
+    licence_confirmed: bool = Field(False, description="The driver ticks that they hold a valid driving licence")
 
 
 class SeatRequestIn(BaseModel):

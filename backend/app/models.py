@@ -285,6 +285,37 @@ class Profile(Base):
     last_lon: Mapped[float | None] = mapped_column(Float, nullable=True)
 
 
+class PasswordReset(Base):
+    """A one-time forgot-password link. Only a hash of the token is stored, so a leaked database can't reset anyone."""
+
+    __tablename__ = "password_resets"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class DriverLicence(Base):
+    """A driver's own declaration that they hold a valid driving licence, ticked each time they offer a ride.
+    The licence itself isn't checked; this records who declared it and when."""
+
+    __tablename__ = "driver_licences"
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    confirmed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class Car(Base):
+    """The car a driver drives: model and colour are shown on their rides, the number plate only to approved riders.
+    A table of its own (not columns on profiles), so existing databases pick it up on startup without a migration."""
+
+    __tablename__ = "cars"
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    model: Mapped[str] = mapped_column(String(60))                 # e.g. Maruti Swift
+    colour: Mapped[str] = mapped_column(String(30))
+    plate: Mapped[str] = mapped_column(String(16))                 # e.g. KA 01 AB 1234
+
+
 class Trip(Base):
     __tablename__ = "trips"
     id: Mapped[int] = mapped_column(primary_key=True)

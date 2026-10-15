@@ -1,8 +1,11 @@
 // Wording for the member app.
-import type { Gender, Rating, SeatStatus, TripStatus } from '../api/trips';
+import type { Car, Gender, Rating, SeatStatus, TripStatus } from '../api/trips';
 
-export const GENDER_LABEL: Record<Gender, string> = { female: 'Woman', male: 'Man', other: 'Non-binary', unsaid: 'Prefers not to say' };
-export const GENDER_OPTIONS: [Gender, string][] = [['female', 'Woman'], ['male', 'Man'], ['other', 'Non-binary'], ['unsaid', 'Prefer not to say']];
+export const GENDER_LABEL: Record<Gender, string> = { female: 'Female', male: 'Male', other: 'Non-binary', unsaid: 'Prefers not to say' };
+export const GENDER_OPTIONS: [Gender, string][] = [['male', 'Male'], ['female', 'Female'], ['other', 'Non-binary'], ['unsaid', 'Prefer not to say']];
+
+/** "White Maruti Swift", plus the number plate when you're allowed to see it. */
+export const carText = (c: Car) => `${c.colour} ${c.model}${c.plate ? ` · ${c.plate}` : ''}`;
 
 export const ratingText = (r: Rating) => (r.average === null ? 'New' : `★ ${r.average.toFixed(1)} (${r.count})`);
 

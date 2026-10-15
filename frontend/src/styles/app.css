@@ -605,6 +605,9 @@ table.data tbody tr:hover { background: var(--mist-2); }
 .seat-meter i { width: 8px; height: 8px; border-radius: 2px; background: var(--peacock); }
 .seat-meter i.taken { background: var(--line); }
 .person-line { display: grid; grid-template-columns: 44px 1fr auto; gap: 12px; align-items: center; }
+.car-line { padding-left: 56px; display: grid; gap: 2px; }   /* lines up under the driver's name */
+.check-row { display: flex; gap: 12px; align-items: flex-start; font-weight: 600; cursor: pointer; }
+.check-row input { width: 22px; height: 22px; margin: 1px 0 0; flex: none; accent-color: var(--ink); }
 .person-actions { display: flex; gap: 10px; align-items: center; }
 .request {
   display: grid; gap: 12px; padding: 14px; border-radius: var(--r-card); background: var(--paper); border: 1px solid var(--line);

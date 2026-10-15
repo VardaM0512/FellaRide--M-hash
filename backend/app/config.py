@@ -47,6 +47,15 @@ class Settings(BaseSettings):
     # Sign-ups without a join code join this community (e.g. DEMO2026, the synthetic demo) instead of the open one,
     # so every new account appears on that community's dashboard. Empty = the open community.
     default_join_code: str = ""
+    # Forgot password: reset links are emailed through this SMTP server. Without a host, the link is written to the
+    # server log instead (local development only). Gmail: smtp.gmail.com, port 587, an app password.
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""                     # defaults to smtp_user
+    # Where the web app lives, for links in emails (no trailing slash).
+    app_url: str = "http://localhost:5173"
     # Member app -> activation engine bridge: raise its errors instead of logging them (tests turn this on).
     activation_strict: bool = False
 

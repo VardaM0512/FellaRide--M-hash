@@ -28,6 +28,19 @@ function PersonLine({ p, role, extra, onReport, call }: { p: Person; role?: stri
   );
 }
 
+/** The driver's car. Riders see the model and colour first, and the number plate once they're approved. */
+function CarLine({ trip }: { trip: Trip }) {
+  if (!trip.car) return <p className="small muted">The driver hasn’t added their car details.</p>;
+  return (
+    <div className="car-line">
+      <p style={{ fontWeight: 600 }}>{trip.car.colour} {trip.car.model}</p>
+      {trip.car.plate
+        ? <p className="small">Number plate <strong className="num" style={{ letterSpacing: '0.05em' }}>{trip.car.plate}</strong></p>
+        : <p className="small muted">You’ll see the number plate once the driver approves you.</p>}
+    </div>
+  );
+}
+
 function CodeBox({ code }: { code: string }) {
   return (
     <div className="code-box" aria-label={`Boarding code ${code.split('').join(' ')}`}>
@@ -126,6 +139,7 @@ function RiderPanel({ trip, me, act, busy, report, pickup }: {
       <section className="stack" aria-labelledby="drv-h">
         <h3 id="drv-h">Driver</h3>
         <PersonLine p={trip.driver} role="Driver" call={!!onboard} onReport={seat ? () => report(trip.driver) : undefined} />
+        <CarLine trip={trip} />
       </section>
 
       {others.length > 0 && (

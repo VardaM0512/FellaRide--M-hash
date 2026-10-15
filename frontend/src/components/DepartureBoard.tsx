@@ -82,7 +82,8 @@ function status(t: Trip): { text: string; tone: 'go' | 'live' | 'mine' | '' } {
 
 export default function DepartureBoard({ from }: { from: Place | null }) {
   const q = useDepartures(from);
-  const rows = [...(q.data || [])].sort((x, y) => x.depart_at.localeCompare(y.depart_at)).slice(0, 5);
+  const all = q.data || [];
+  const rows = [...all].sort((x, y) => x.depart_at.localeCompare(y.depart_at)).slice(0, 5);
   const wide = useWide();
   return (
     <section className="board" aria-labelledby="board-h">
@@ -125,6 +126,12 @@ export default function DepartureBoard({ from }: { from: Place | null }) {
             );
           })}
         </ol>
+      )}
+      {/* more drivers than fit on the board: compare them all on Find */}
+      {from && all.length > rows.length && (
+        <Link to="/find" className="btn-link small" style={{ display: 'block', textAlign: 'center', marginTop: 8 }}>
+          See all {all.length} rides near you
+        </Link>
       )}
     </section>
   );

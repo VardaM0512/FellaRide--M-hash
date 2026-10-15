@@ -3,6 +3,7 @@
 Every member action takes the acting member from the token, never from the URL or body:
 a member can only read and change their own data; an admin can see and run their own community.
 """
+import hashlib
 import hmac
 import logging
 import secrets
@@ -56,10 +57,22 @@ def verify_password(password: str, hashed: str | None) -> bool:
 
 
 # ---------- tokens ----------
+DELETED_DOMAIN = "deleted.invalid"   # a deleted account's email becomes deleted-<id>@deleted.invalid
+
+
+def is_deleted(user: User) -> bool:
+    return user.email.endswith("@" + DELETED_DOMAIN)
+
+
+def password_version(user: User) -> str:
+    """Changes whenever the password does, so a reset (or deleting the account) signs out every old session."""
+    return hashlib.sha256(user.password_hash.encode()).hexdigest()[:12]
+
+
 def create_token(user: User) -> str:
     now = datetime.now(timezone.utc)
     payload = {"sub": str(user.id), "tid": user.tenant_id, "role": user.role, "mid": user.member_id,
-               "iat": now, "exp": now + timedelta(hours=get_settings().jwt_expire_hours)}
+               "pv": password_version(user), "iat": now, "exp": now + timedelta(hours=get_settings().jwt_expire_hours)}
     return jwt.encode(payload, _secret(), algorithm=ALGORITHM)
 
 
@@ -85,8 +98,10 @@ def current_actor(authorization: str | None = Header(default=None), db: Session 
         raise _unauthorized()
     # re-read the user so deleted accounts and role changes take effect immediately
     user = db.get(User, user_id)
-    if not user:
+    if not user or is_deleted(user):
         raise _unauthorized()
+    if "pv" in payload and not hmac.compare_digest(str(payload["pv"]), password_version(user)):
+        raise _unauthorized("Your password was changed. Please sign in again.")
     return Actor(user=user, tenant_id=user.tenant_id, member_id=user.member_id, is_admin=user.role == "admin")
 
 

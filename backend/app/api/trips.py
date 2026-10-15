@@ -55,7 +55,8 @@ def set_profile(body: ProfileIn, user: User = Depends(rider_or_driver), db: Sess
     except IntegrityError:
         db.rollback()
         raise HTTPException(409, "Another account already uses this mobile number.")
-    return {"name": p.name, "gender": p.gender, "mobile": p.mobile, "rating": T.rating_of(db, user.id)}
+    return {"name": p.name, "gender": p.gender, "mobile": p.mobile, "rating": T.rating_of(db, user.id),
+            "car": T.car_of(db, user.id, show_plate=True)}
 
 
 @router.post("/me/location", summary="Where you are now, so you hear about rides near you")

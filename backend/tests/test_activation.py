@@ -35,7 +35,7 @@ def post_trip(client, h, minutes=0, seats=3):
     r = client.post(f"{API}/trips", headers=h, json={
         "from_name": "Lakeview", "from_lat": 12.97, "from_lon": 77.55, "to_name": "Tech Park", "to_lat": 12.97,
         "to_lon": 77.65, "depart_at": (datetime.now(timezone.utc) + timedelta(minutes=minutes)).isoformat(),
-        "route": ROUTE, "route_km": 11.2, "route_min": 25, "seats": seats})
+        "route": ROUTE, "route_km": 11.2, "route_min": 25, "seats": seats, "licence_confirmed": True})
     assert r.status_code == 201, r.text
     return r.json()["id"]
 
@@ -311,7 +311,7 @@ def test_a_trip_far_outside_the_community_counts_but_is_not_a_commute(client, co
     trip = client.post(f"{API}/trips", headers=dh, json={
         "from_name": "Mangaluru", "from_lat": 12.95, "from_lon": 74.80, "to_name": "Mangalore Airport", "to_lat": 12.95,
         "to_lon": 74.90, "depart_at": datetime.now(timezone.utc).isoformat(), "route": far, "route_km": 12,
-        "route_min": 20, "seats": 2}).json()["id"]
+        "route_min": 20, "seats": 2, "licence_confirmed": True}).json()["id"]
     take_seats(client, trip, dh, [rh])
     client.post(f"{API}/trips/{trip}/end", headers=dh)
     with SessionLocal() as db:

@@ -12,7 +12,7 @@ import { useSession } from '../lib/session';
 import { GENDER_LABEL, ratingText, soon, toLocalInput } from '../lib/tripFormat';
 
 export default function Offer() {
-  const { session } = useSession();
+  const { session, signIn } = useSession();
   const navigate = useNavigate();
   const announce = useAnnounce();
   const post = usePostTrip();
@@ -26,6 +26,9 @@ export default function Offer() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const p = session?.profile;
+  const [car, setCar] = useState({ model: p?.car?.model ?? '', colour: p?.car?.colour ?? '', plate: p?.car?.plate ?? '' });
+  const [licence, setLicence] = useState(false);   // ticked every time a ride is offered
+  const carReady = car.model.trim().length >= 2 && car.colour.trim().length >= 2 && car.plate.trim().length >= 4;
 
   async function tapMap(pt: { lat: number; lon: number }) {
     if (routes) return;
@@ -36,6 +39,8 @@ export default function Offer() {
   async function showRoutes(e: FormEvent) {
     e.preventDefault();
     if (!from || !to) return setError(new Error('Set where you start and where you’re going.'));
+    if (!carReady) return setError(new Error('Add your car’s model, colour and number, so riders can find you.'));
+    if (!licence) return setError(new Error('Tick the box to confirm you have a valid driving licence.'));
     if (new Date(when).getTime() < Date.now() - 5 * 60_000) return setError(new Error('Pick a time from now on.'));
     setError(null); setBusy(true);
     const r = await routesBetween(from, to);
@@ -49,7 +54,10 @@ export default function Offer() {
       const trip = await post.mutateAsync({
         from_name: from.name, from_lat: from.lat, from_lon: from.lon, to_name: to.name, to_lat: to.lat, to_lon: to.lon,
         depart_at: new Date(when).toISOString(), route: r.coords, route_km: r.km, route_min: r.min, seats,
+        car: { model: car.model.trim(), colour: car.colour.trim(), plate: car.plate.trim() }, licence_confirmed: licence,
       });
+      // remember the car for next time (the server tidies the number plate)
+      if (session && p) signIn({ ...session, profile: { ...p, car: trip.car } });
       announce(`Ride posted. ${trip.notified ?? 0} people nearby were told.`);
       navigate(`/trip/${trip.id}`, { replace: true, state: { notified: trip.notified ?? 0 } });
     } catch (err) { setError(err); }
@@ -86,6 +94,8 @@ export default function Offer() {
           <dt>To</dt><dd>{to?.name}</dd>
           <dt>Leaving</dt><dd>{new Date(when).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })}</dd>
           <dt>Seats</dt><dd>{seats}</dd>
+          <dt>Car</dt><dd>{car.colour} {car.model} · {car.plate.toUpperCase()}</dd>
+          <dt>Licence</dt><dd>Confirmed by you</dd>
         </dl>
         <ErrorNote error={error} />
         <div className="btn-row">
@@ -102,6 +112,26 @@ export default function Offer() {
         <span>Posting as <strong>{p?.name}</strong> · {p ? GENDER_LABEL[p.gender] : ''} · {p ? ratingText(p.rating) : ''}</span>
         <Link to="/me" className="btn-link small">Edit</Link>
       </div>
+      <fieldset className="card stack" style={{ margin: 0 }}>
+        <legend className="sr-only">You and your car</legend>
+        <h2 style={{ fontSize: 'var(--fs-h3)' }} aria-hidden="true">You and your car</h2>
+        <p className="small muted" style={{ marginTop: -8 }}>Only drivers fill this in. Riders see the model and colour; only riders you approve see the number plate.</p>
+        <label className="field">Car model
+          <input value={car.model} onChange={(e) => setCar({ ...car, model: e.target.value })} placeholder="Maruti Swift" required minLength={2} maxLength={60} autoComplete="off" />
+        </label>
+        <label className="field">Colour
+          <input value={car.colour} onChange={(e) => setCar({ ...car, colour: e.target.value })} placeholder="White" required minLength={2} maxLength={30} autoComplete="off" />
+        </label>
+        <label className="field">Car number
+          <input value={car.plate} onChange={(e) => setCar({ ...car, plate: e.target.value })} placeholder="KA 01 AB 1234" required minLength={4} maxLength={16}
+            autoComplete="off" autoCapitalize="characters" style={{ textTransform: 'uppercase' }} />
+          <span className="hint">Saved for your next ride.</span>
+        </label>
+        <label className="check-row">
+          <input type="checkbox" checked={licence} onChange={(e) => setLicence(e.target.checked)} required />
+          <span>I have a valid driving licence for this car.</span>
+        </label>
+      </fieldset>
       <div className="journey-box">
       <PlaceField label="From" value={from} onChange={setFrom} active={active === 'from'} onActivate={() => setActive('from')} near={from ?? session?.tenant.center} placeholder="Where you start" />
       <PlaceField label="To" value={to} onChange={setTo} active={active === 'to'} onActivate={() => setActive('to')} near={from ?? session?.tenant.center} allowLocate={false} placeholder="Where you’re going" />
@@ -118,7 +148,7 @@ export default function Offer() {
         </div>
       </div>
       <ErrorNote error={error} />
-      <button className="btn btn-primary btn-block" disabled={busy || !from || !to}>{busy ? 'Finding routes…' : <>Next: confirm route {Icon.arrow}</>}</button>
+      <button className="btn btn-primary btn-block" disabled={busy || !from || !to || !carReady || !licence}>{busy ? 'Finding routes…' : <>Next: confirm route {Icon.arrow}</>}</button>
     </form>
   );
 }
