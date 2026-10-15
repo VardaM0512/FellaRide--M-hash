@@ -181,7 +181,7 @@ The organiser's numbers keep their meaning. `GET /tenants/{t}/metrics` also retu
 
 ### Demo: watch the dashboard move (5 minutes)
 
-1. **Organiser:** sign in as `admin@demo.fellaride.app` / `fellaride-demo-admin`. Note the funnel numbers, active users, completed rides and the model weights.
+1. **Organiser:** sign in as `admin@demo.fellaride.app` / `vndFlmbbXm5ESSiEvW-vfKC3`. Note the funnel numbers, active users, completed rides and the model weights.
 2. **Driver** (incognito window): **Create an account** with join code `DEMO2026`. The funnel's *Joined* goes up within 20 seconds.
 3. **Rider** (second incognito window): create an account with `DEMO2026` too.
 4. **Driver:** **I'm driving** → from `Koramangala` → to `Whitefield` → leaving now → confirm the fastest route → post.
@@ -317,14 +317,14 @@ python docs/build_architecture.py                      # writes docs/architectur
 
 ## Deployment and access
 
-- **Public URL:** _add after deployment_.
+- **Public URL:** **https://fellaride-web.onrender.com** (organiser dashboard: https://fellaride-web.onrender.com/dashboard · API: https://fellaride-api.onrender.com, docs at `/docs`). Free hosting sleeps after 15 minutes idle, so the first visit can take about a minute.
 - **Render (recommended):** `render.yaml` is a Blueprint for two free Docker services in Singapore, `fellaride-api` (`backend/Dockerfile`) and `fellaride-web` (`frontend/Dockerfile`). The database is Supabase. Step-by-step instructions are in [DEPLOY.md](DEPLOY.md). Free Render services sleep after 15 minutes idle and Supabase free pauses after 7 days idle, so open both before a demo.
 - **Any other Docker host:** build both Dockerfiles and set the environment variables below. Both containers listen on `$PORT` (API default 8000, web default 80).
 - On first start the API creates a **synthetic demo community** (join code `DEMO2026`, 14 replayed days) and the **open community** for people who sign up without a code.
 
 | Who | How to sign in | What you can do |
 |---|---|---|
-| Demo organiser | `admin@demo.fellaride.app` / `fellaride-demo-admin` (or `FELLARIDE_DEMO_ADMIN_PASSWORD`) | Dashboard, engine controls, Proof, reports, broadcast |
+| Demo organiser | `admin@demo.fellaride.app` / `vndFlmbbXm5ESSiEvW-vfKC3` (on the live site; a fresh local database uses `FELLARIDE_DEMO_ADMIN_PASSWORD`, default `fellaride-demo-admin`) | Dashboard, engine controls, Proof, reports, broadcast |
 | Your own account | App → **Create an account** (join code optional; `DEMO2026` for the demo community) | The full member app: drive, ride, chat, rate, report |
 | Any demo member | App → **Try the demo community** → tap a person | The member app as that synthetic person |
 
