@@ -6,7 +6,7 @@ from ..models import (Booking, Connection, DailyMetric, Event, Intervention, Mem
                       RideFeedback, RideOffer, RideRequest, Tenant, Trip, TripSeat)
 
 ACTIVE_WINDOW_DAYS = 7
-SEAT_MATCHED = ("approved", "boarded", "dropped", "missed", "cancelled")   # app seat requests the driver accepted
+SEAT_MATCHED = ("approved", "boarded", "dropped", "missed", "no_show", "cancelled")   # app seat requests the driver accepted
 
 
 def _ratio(a: float, b: float) -> float:

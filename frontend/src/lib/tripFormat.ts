@@ -32,7 +32,7 @@ export const TRIP_STATUS: Record<TripStatus, string> = {
 
 export const SEAT_STATUS: Record<SeatStatus, string> = {
   pending: 'Waiting for approval', approved: 'Approved, not in yet', rejected: 'Declined', withdrawn: 'Withdrew',
-  boarded: 'In the car', dropped: 'Got off', missed: 'Left behind', cancelled: 'Ride cancelled',
+  boarded: 'In the car', dropped: 'Got off', missed: 'Not picked up', no_show: 'Not at pickup', cancelled: 'Ride cancelled',
 };
 
 /** <input type="datetime-local"> value for a Date, in local time. */

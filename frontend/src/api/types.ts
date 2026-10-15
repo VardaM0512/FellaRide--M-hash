@@ -134,7 +134,11 @@ export type ModelWeights = Record<Role, { weights: Record<FeatureName, number>; 
 export interface CompareRun { tenant_id: number; kpis: Kpis; funnel: FunnelStep[]; timeseries: { day: number; active_users: number; rides_completed_today: number; registered: number }[] }
 export interface CompareResult { smart: CompareRun; random: CompareRun; lift: Record<'active_users' | 'rides_completed' | 'registered' | 'match_rate', number | null> }
 
-export interface SessionUser { id: number; email: string; role: 'member' | 'admin'; member_id: number | null }
+export interface SessionUser {
+  id: number; email: string; role: 'member' | 'admin'; member_id: number | null;
+  /** Riding waits for the emailed code only while the server can send email (`email_verification_required`). */
+  email_verified?: boolean; email_verification_required?: boolean;
+}
 export interface Session {
   token: string; user: SessionUser; tenant: Community & { join_code?: string }; member: Member | null;
   profile: import('./trips').Profile | null;

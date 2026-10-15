@@ -1,10 +1,10 @@
 // The phone app frame: top bar, scrolling content, bottom tabs (Home, Alerts, You).
 // New alerts drop in as a banner, vibrate, and show as a phone notification when the app is in the background.
 import { AnimatePresence, motion } from 'framer-motion';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, NavLink, useLocation, useNavigate, useOutlet } from 'react-router-dom';
-import { shareLocation, useAlerts, type Alert } from '../api/trips';
-import { Avatar, Icon, Logo } from '../components/ui';
+import { resendVerification, shareLocation, useAlerts, verifyEmail, type Alert } from '../api/trips';
+import { Avatar, ErrorNote, Icon, Logo } from '../components/ui';
 import { ratingText } from '../lib/tripFormat';
 import { useAnnounce } from '../lib/announce';
 import { showSystemNotification } from '../lib/notify';
@@ -63,6 +63,43 @@ function useQuietLocation() {
       navigator.geolocation.getCurrentPosition((pos) => shareLocation(+pos.coords.latitude.toFixed(5), +pos.coords.longitude.toFixed(5)).catch(() => {}));
     }).catch(() => {});
   }, []);
+}
+
+/** New accounts confirm their email with the 6-digit code from the sign-up email before posting or booking a ride
+ *  (only while the server can send email). Shown on every screen until it's done. */
+function VerifyEmailBanner() {
+  const { session, signIn } = useSession();
+  const [code, setCode] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState('');
+  const [error, setError] = useState<unknown>(null);
+  if (!session || session.user.email_verified !== false || !session.user.email_verification_required) return null;
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true); setError(null); setNote('');
+    try { signIn({ ...(await verifyEmail(code)), token: session!.token }); } catch (err) { setError(err); } finally { setBusy(false); }
+  }
+  async function resend() {
+    setBusy(true); setError(null); setNote('');
+    try { setNote((await resendVerification()).message ?? 'We’ve sent a new code.'); } catch (err) { setError(err); } finally { setBusy(false); }
+  }
+  return (
+    <form className="note note-info stack" onSubmit={submit} aria-labelledby="verify-h">
+      <strong id="verify-h">Confirm your email to start riding</strong>
+      <span className="small">Enter the 6-digit code we sent to {session.user.email}. Until then you can look around, but not post or book a ride.</span>
+      <div className="btn-row">
+        <label className="field" style={{ flex: 1 }}><span className="sr-only">Code</span>
+          <input inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} placeholder="123456"
+            value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} />
+        </label>
+        <button className="btn btn-primary btn-small" disabled={busy || code.length !== 6}>Confirm</button>
+        <button type="button" className="btn btn-quiet btn-small" disabled={busy} onClick={resend}>Send a new code</button>
+      </div>
+      {note && <span className="small" role="status">{note}</span>}
+      <ErrorNote error={error} />
+    </form>
+  );
 }
 
 // Tabs sit side by side; moving between them slides sideways. Everything else (a ride, a form) rises from below.
@@ -171,6 +208,7 @@ export default function AppLayout() {
         </Link>
       </header>
       <main className="app-main" id="main" ref={mainRef} tabIndex={-1} onScroll={(e) => setScrolled(e.currentTarget.scrollTop > 4)}>
+        <VerifyEmailBanner />
         <AnimatePresence mode="popLayout" initial={false} custom={dir}>
           <motion.div
             key={pathname}

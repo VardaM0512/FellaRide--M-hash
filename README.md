@@ -375,9 +375,9 @@ Tables are created automatically on startup. Sprint 3 only **added** tables, and
 
 | Group | Endpoints |
 |---|---|
-| Account | `POST /auth/signup` · `POST /auth/login` (email or mobile) · `POST /auth/forgot-password` · `POST /auth/reset-password` · `POST /me/delete` · `POST /auth/demo-login` · `GET /auth/me` · `GET /join/{code}` · `GET /tenants/{t}/demo-accounts` · `POST /auth/register` (engine commute sign-up) |
+| Account | `POST /auth/signup` · `POST /auth/login` (email or mobile) · `POST /auth/forgot-password` · `POST /auth/reset-password` · `POST /me/delete` · `POST /auth/demo-login` · `GET /auth/me` · `GET /join/{code}` · `GET /tenants/{t}/demo-accounts` · `POST /auth/register` (engine commute sign-up) · `POST /auth/verify-email` · `POST /auth/verify-email/send` (6-digit sign-up code; required before posting or booking only while SMTP is configured) |
 | Me | `PUT /me/profile` · `POST /me/location` · `GET /me/trips` · `GET /me/alerts` · `POST /me/alerts/read` · `GET /me/invites` · `POST /me/invites` |
-| Rides (member app) | `POST /trips` · `GET /trips/search` · `GET /trips/{id}` · `POST /trips/{id}/request` · `/withdraw` · `/start` · `/end` · `/cancel` · `POST /trips/{id}/seats/{s}/approve` · `/reject` · `/board` |
+| Rides (member app) | `POST /trips` · `GET /trips/search` · `GET /trips/{id}` · `POST /trips/{id}/request` · `/withdraw` · `/start` · `/end` · `/cancel` · `POST /trips/{id}/seats/{s}/approve` · `/reject` · `/board` · `/no-show` (rider not at pickup, from the planned time) |
 | Chat and updates | `GET /trips/{id}/messages` · `POST /trips/{id}/messages` · `POST /trips/{id}/notify` |
 | Trust | `POST /trips/{id}/ratings` · `POST /reports` · `GET /report-reasons` |
 | Organiser | `GET /tenants/{t}/trips-overview` · `POST /tenants/{t}/broadcast` · `POST /tenants/{t}/reports/{r}/review` |

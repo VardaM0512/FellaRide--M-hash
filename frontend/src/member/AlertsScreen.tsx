@@ -9,7 +9,7 @@ import { NUDGE_ACTION, alertLink } from './AppLayout';
 const TONE: Record<string, string> = {
   approved: 'k-matched', boarded: 'k-matched', started: 'k-ride_started', trip_nearby: 'k-seat_wanted', seat_request: 'k-seat_wanted',
   driver_update: 'k-nudge', broadcast: 'k-nudge', rate: 'k-rate_ride', declined: 'k-no_match', cancelled: 'k-ride_cancelled',
-  missed: 'k-ride_cancelled', penalty: 'k-ride_cancelled', nudge_driver: 'k-nudge', nudge_rider: 'k-matched',
+  missed: 'k-ride_cancelled', no_show: 'k-ride_cancelled', expired: 'k-ride_cancelled', rider_left: 'k-no_match', penalty: 'k-ride_cancelled', nudge_driver: 'k-nudge', nudge_rider: 'k-matched',
   nudge_connector: 'k-rate_ride', nudge_generic: 'k-nudge',
 };
 

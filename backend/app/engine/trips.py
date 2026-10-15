@@ -8,6 +8,12 @@ Rules worth knowing:
   last rider still on board (or still to be picked up), the whole trip ends with them.
 - Leaving early: if the driver set off more than EARLY_GRACE_MIN before the planned time and an approved rider
   never got in, the driver gets an automatic 1-star rating. Cancelling after approving riders gives 2 stars.
+- Not at the pickup: from the planned time, the driver can mark an approved rider as a no-show, which frees
+  their seat. If the driver hasn't picked a rider up PICKUP_WAIT after the planned time, the rider may leave.
+- Nobody closed it: an open ride STALE_AFTER past its time expires; a started ride is closed STALE_AFTER after
+  it should have arrived. Everyone still on it is told (see expire_stale).
+- Price: a rider pays for the distance from their pickup to their drop (the end of the route if they gave none),
+  exactly the distance the search quoted.
 - Ratings: a person's rating is a recency-weighted average of their last RATING_WINDOW ratings
   (each older rating counts RECENCY times the one after it), so recent behaviour matters most.
 """
@@ -18,7 +24,7 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session
 
 from ..models import (Alert, Car, DriverLicence, PayoutInfo, Profile, Rating, Report, SeatPayment, Trip, TripLocation, TripMessage,
-                      TripPrice, TripSeat, TripSeatCount, User)
+                      TripPrice, TripSeat, TripSeatCount, TripSeatDrop, User)
 from . import activation, pricing
 from .geo import haversine_km
 
@@ -26,6 +32,7 @@ NEAR_KM = 2.5            # "near you" alerts and search radius around the route
 EARLY_GRACE_MIN = 5
 STALE_AFTER = timedelta(hours=3)   # an open trip this long past its time is expired
 CANCEL_CUTOFF = timedelta(minutes=10)   # after a seat is confirmed, either side may cancel until this long before departure
+PICKUP_WAIT = timedelta(minutes=15)     # an approved rider not picked up this long after departure may leave the ride
 TRACK_FROM = timedelta(minutes=30)      # live tracking starts this long before departure (or when the driver sets off)
 TRACK_FRESH = timedelta(minutes=2)      # an older position is not shown as live
 AVG_CITY_KMH = 22                       # for a rough "arriving in" when the phone doesn't report a speed
@@ -34,7 +41,8 @@ RECENCY = 0.85
 
 ON_TRIP = ("approved", "boarded")            # counts against seats and keeps the trip alive
 RODE = ("boarded", "dropped")                 # actually travelled together
-IN_GROUP = ("approved", "boarded", "dropped", "missed")   # sees the code, chat, phone numbers
+IN_GROUP = ("approved", "boarded", "dropped", "missed", "no_show")   # sees the code, chat, phone numbers
+REPORTABLE = IN_GROUP + ("cancelled",)   # was confirmed on the ride, so can report (and be reported by) the others
 
 # Report reasons (multiple choice). Each maps to a category; a report's category is its most serious one.
 REPORT_REASONS: dict[str, tuple[str, str]] = {
@@ -178,8 +186,49 @@ def alert(db: Session, user_id: int, kind: str, title: str, body: str = "", trip
 
 # ---------- reading trips ----------
 def expire_stale(db: Session) -> None:
-    db.execute(update(Trip).where(Trip.status == "open", Trip.depart_at < now() - STALE_AFTER).values(status="expired")
-               .execution_options(synchronize_session="fetch"))
+    """Close rides nobody closed, so nobody stays stuck on them (an approved rider can't book again while a ride
+    holds them). An open ride STALE_AFTER past its time expires. A started ride the driver never ended is closed
+    STALE_AFTER after it should have arrived, exactly as if the driver had ended it. Everyone on it is told."""
+    cutoff = now() - STALE_AFTER
+    stale = list(db.scalars(select(Trip).where(or_(
+        (Trip.status == "open") & (Trip.depart_at < cutoff),
+        (Trip.status == "started") & (func.coalesce(Trip.started_at, Trip.depart_at) < cutoff)))))
+    for t in stale:
+        if t.status == "open":
+            if _claim(db, t, "open", "expired"):
+                _expired(db, t)
+            continue
+        due = max(utc(t.started_at or t.depart_at), utc(t.depart_at)) + timedelta(minutes=t.route_min) + STALE_AFTER
+        if due < now() and _claim(db, t, "started", "completed"):
+            _finish(db, t, auto=True)
+
+
+def _claim(db: Session, trip: Trip, was: str, to: str) -> bool:
+    """Move a ride on from `was` only if no other request just did (two polls can find the same stale ride)."""
+    done = db.execute(update(Trip).where(Trip.id == trip.id, Trip.status == was).values(status=to)
+                      .execution_options(synchronize_session=False)).rowcount == 1
+    if done:
+        trip.status = to
+    return done
+
+
+def _expired(db: Session, trip: Trip) -> None:
+    """An open ride that never set off: the driver and everyone still waiting on it hear that it didn't happen."""
+    trip.ended_at = now()
+    stop_tracking(db, trip)
+    driver = profile(db, trip.driver_id)
+    for s in _seats_query(db, trip):
+        if s.status == "approved":
+            s.status = "missed"
+            alert(db, s.rider_id, "expired", f"Your ride with {driver.name} didn't go ahead",
+                  "The driver never started it, so it has expired and your seat is released. Find another ride going your way.", trip.id)
+        elif s.status == "pending":
+            s.status = "rejected"
+            alert(db, s.rider_id, "expired", "Your seat request expired",
+                  f"{driver.name}'s ride to {trip.to_name.split(',')[0]} never set off. Find another ride going your way.", trip.id)
+    alert(db, trip.driver_id, "expired", "Your ride expired",
+          f"Your ride to {trip.to_name.split(',')[0]} was never started, so it has been closed.", trip.id)
+    db.flush()
 
 
 # ---------- concurrency: one change to a ride's seats at a time ----------
@@ -218,9 +267,11 @@ def _seats(db: Session, trip: Trip) -> list[TripSeat]:
         ids = [x.id for x in rows]
         counts = {c.seat_id: c for c in db.scalars(select(TripSeatCount).where(TripSeatCount.seat_id.in_(ids)))}
         pays = {p.seat_id: p for p in db.scalars(select(SeatPayment).where(SeatPayment.seat_id.in_(ids)))}
+        drops = {d.seat_id: d for d in db.scalars(select(TripSeatDrop).where(TripSeatDrop.seat_id.in_(ids)))}
         for i in ids:
             memo.setdefault(("seat_count", i), counts.get(i))
             memo.setdefault(("payment", i), pays.get(i))
+            memo.setdefault(("drop", i), drops.get(i))
         list(db.scalars(select(Profile).where(Profile.user_id.in_([x.rider_id for x in rows] + [trip.driver_id]))))
     return rows
 
@@ -279,12 +330,18 @@ def contribution(db: Session, trip: Trip, rider_km: float, count: int = 1) -> in
     return count * pricing.per_seat(per_km_of(db, trip), rider_km, trip.route_km, trip.seats_total)
 
 
-def seat_km(trip: Trip, s: TripSeat) -> float:
-    return pricing.along_route_km(trip.route, s.pickup_lat, s.pickup_lon)
+def drop_of(db: Session, s: TripSeat) -> TripSeatDrop | None:
+    return _cached(db, ("drop", s.id), lambda: db.get(TripSeatDrop, s.id))
+
+
+def seat_km(db: Session, trip: Trip, s: TripSeat) -> float:
+    """Pickup to drop along the route: the same distance the search priced (no drop given: to the end)."""
+    d = drop_of(db, s)
+    return pricing.along_route_km(trip.route, s.pickup_lat, s.pickup_lon, d.drop_lat if d else None, d.drop_lon if d else None)
 
 
 def seat_contribution(db: Session, trip: Trip, s: TripSeat) -> int:
-    return contribution(db, trip, seat_km(trip, s), seat_count(db, s))
+    return contribution(db, trip, seat_km(db, trip, s), seat_count(db, s))
 
 
 def payment_of(db: Session, s: TripSeat) -> dict:
@@ -339,7 +396,9 @@ def _trip_out(db: Session, trip: Trip, viewer_id: int, extra: dict | None = None
         else:   # riders see the others in the car, never other people's requests
             visible = member and s.status in IN_GROUP
         if visible:
-            rider_rows.append({"seat_id": s.id, "status": s.status, "pickup_name": s.pickup_name, "seats": seat_count(db, s),
+            drop = drop_of(db, s)
+            rider_rows.append({"seat_id": s.id, "status": s.status, "pickup_name": s.pickup_name,
+                               "drop_name": drop.drop_name if drop else None, "seats": seat_count(db, s),
                                "contribution": seat_contribution(db, trip, s), "payment": payment_of(db, s),
                                "person": person(db, s.rider_id, show_mobile=is_driver and s.status in IN_GROUP)})
     return {
@@ -360,6 +419,7 @@ def _trip_out(db: Session, trip: Trip, viewer_id: int, extra: dict | None = None
         "riders": rider_rows,
         "cancel_until": utc(trip.depart_at - CANCEL_CUTOFF).isoformat(),
         "can_cancel": can_cancel(db, trip, viewer_id),
+        "pickup_overdue": pickup_overdue(trip),
         "tracking": tracking_window(trip),
         "live": live_positions(db, trip, viewer_id) if member else [],
         **(extra or {}),
@@ -395,7 +455,7 @@ def pending_for(db: Session, user_id: int) -> list[Trip]:
 
 
 def history_for(db: Session, user_id: int, limit: int = 20) -> list[Trip]:
-    rode = select(TripSeat.trip_id).where(TripSeat.rider_id == user_id, TripSeat.status.in_(RODE + ("missed",)))
+    rode = select(TripSeat.trip_id).where(TripSeat.rider_id == user_id, TripSeat.status.in_(RODE + ("missed", "no_show")))
     return list(db.scalars(select(Trip).where(
         or_(Trip.driver_id == user_id, Trip.id.in_(rode)),
         Trip.status.in_(("completed", "cancelled", "expired"))).order_by(Trip.depart_at.desc()).limit(limit)))
@@ -509,9 +569,15 @@ def too_late_to_cancel(trip: Trip) -> bool:
     return now() > utc(trip.depart_at) - CANCEL_CUTOFF
 
 
+def pickup_overdue(trip: Trip) -> bool:
+    """PICKUP_WAIT past the planned time: an approved rider still waiting may give up on the ride."""
+    return trip.status in ("open", "started") and now() > utc(trip.depart_at) + PICKUP_WAIT
+
+
 def can_cancel(db: Session, trip: Trip, viewer_id: int) -> bool:
     """Whether the viewer may still back out. A request nobody has approved can always be withdrawn, and a ride
-    with no confirmed riders can always be cancelled; once a seat is confirmed, only until 10 minutes before."""
+    with no confirmed riders can always be cancelled; once a seat is confirmed, only until 10 minutes before.
+    A rider who still hasn't been picked up PICKUP_WAIT after the planned time may leave again."""
     if trip.status not in ("open", "started"):
         return False
     if trip.driver_id == viewer_id:
@@ -522,11 +588,15 @@ def can_cancel(db: Session, trip: Trip, viewer_id: int) -> bool:
     mine = seat_of(db, trip, viewer_id)
     if not mine or mine.status not in ("pending", "approved"):
         return False
-    return mine.status == "pending" or not too_late_to_cancel(trip)
+    return mine.status == "pending" or not too_late_to_cancel(trip) or pickup_overdue(trip)
 
 
 def cutoff_words(trip: Trip) -> str:
     return f"Cancelling closes {int(CANCEL_CUTOFF.total_seconds() // 60)} minutes before departure"
+
+
+def wait_words() -> str:
+    return f"{int(PICKUP_WAIT.total_seconds() // 60)} minutes"
 
 
 # ---------- live tracking ----------
@@ -600,9 +670,14 @@ def live_positions(db: Session, trip: Trip, viewer_id: int) -> list[dict]:
 
 # ---------- rider: ask, withdraw ----------
 def request_seat(db: Session, trip: Trip, user: User, pickup_name: str, pickup_lat: float | None, pickup_lon: float | None,
-                 count: int = 1) -> TripSeat:
-    """Ask for `count` seats (you plus friends travelling with you). Asking again while pending changes the count."""
+                 count: int = 1, drop_name: str = "", drop_lat: float | None = None, drop_lon: float | None = None) -> TripSeat:
+    """Ask for `count` seats (you plus friends travelling with you). Asking again while pending changes the count.
+    With a drop, the contribution is for pickup to drop (what the search showed); without one, to the end."""
     p = profile(db, user.id)
+    has_drop = drop_lat is not None and drop_lon is not None
+    if has_drop and pickup_lat is not None and pickup_lon is not None and \
+            nearest_on_route(trip.route, drop_lat, drop_lon)[1] < nearest_on_route(trip.route, pickup_lat, pickup_lon)[1]:
+        raise TripError(422, "Your drop comes before your pickup on this ride's route.")
     if trip.driver_id == user.id:
         raise TripError(409, "This is your own ride.")
     if trip.status not in ("open", "started"):
@@ -638,6 +713,13 @@ def request_seat(db: Session, trip: Trip, user: User, pickup_name: str, pickup_l
         db.flush()
     set_seat_count(db, s, count)
     s.pickup_name, s.pickup_lat, s.pickup_lon = (pickup_name or "").strip()[:160], pickup_lat, pickup_lon
+    drop = db.get(TripSeatDrop, s.id)
+    if has_drop:
+        drop = drop or TripSeatDrop(seat_id=s.id)
+        drop.drop_name, drop.drop_lat, drop.drop_lon = (drop_name or "").strip()[:160], drop_lat, drop_lon
+        db.add(drop)
+    elif drop:   # asking again without a drop: to the end of the route
+        db.delete(drop)
     if pickup_lat is not None and pickup_lon is not None:
         p.last_lat, p.last_lon = pickup_lat, pickup_lon
     rating = rating_of(db, user.id)
@@ -654,12 +736,21 @@ def withdraw(db: Session, trip: Trip, user: User) -> TripSeat:
     if not s or s.status not in ("pending", "approved"):
         raise TripError(409, "There is no request of yours to withdraw.")
     was = s.status
-    if was == "approved" and too_late_to_cancel(trip):
-        raise TripError(409, f"{cutoff_words(trip)}. Message or call the driver if something has come up.")
+    overdue = was == "approved" and too_late_to_cancel(trip) and pickup_overdue(trip)
+    if was == "approved" and too_late_to_cancel(trip) and not overdue:
+        raise TripError(409, f"{cutoff_words(trip)}. Message or call the driver if something has come up. If they haven't "
+                             f"picked you up {wait_words()} after the planned time, you can leave the ride then.")
     s.status = "withdrawn"
-    if was == "approved":
-        alert(db, trip.driver_id, "rider_left", f"{profile(db, user.id).name} can't make it",
-              f"They cancelled their {seats_word(seat_count(db, s))}, so {'it is' if seat_count(db, s) == 1 else 'they are'} free again.", trip.id)
+    name, n = profile(db, user.id).name, seat_count(db, s)
+    if overdue:
+        alert(db, trip.driver_id, "rider_left", f"{name} stopped waiting",
+              f"You hadn't picked them up {wait_words()} after the planned time, so they left the ride. "
+              f"Their {seats_word(n)} {'is' if n == 1 else 'are'} free again.", trip.id)
+    elif was == "approved":
+        alert(db, trip.driver_id, "rider_left", f"{name} can't make it",
+              f"They cancelled their {seats_word(n)}, so {'it is' if n == 1 else 'they are'} free again.", trip.id)
+    else:
+        alert(db, trip.driver_id, "rider_left", f"{name} withdrew their request", "Nothing for you to do.", trip.id)
     db.flush()
     return s
 
@@ -713,9 +804,13 @@ def decide(db: Session, trip: Trip, user: User, seat_id: int, approve: bool) -> 
     alert(db, s.rider_id, "approved", f"{driver.name} approved your seat",
           (f"Look for a {car}. " if car else "") +
           (f"{seats_word(need).capitalize()} held for you. " if need > 1 else "") + _contribution_words(db, trip, s) + f"Your boarding code is {trip.code}. Check it matches the driver's before you get in. You can chat or call now.", trip.id)
-    # the rider is set: their other requests are dropped
-    for other in db.scalars(select(TripSeat).where(TripSeat.rider_id == s.rider_id, TripSeat.status == "pending", TripSeat.id != s.id)):
+    # the rider is set: their other requests are dropped, and those drivers are told
+    rider_name = None
+    for other, other_driver in db.execute(select(TripSeat, Trip.driver_id).join(Trip, Trip.id == TripSeat.trip_id).where(
+            TripSeat.rider_id == s.rider_id, TripSeat.status == "pending", TripSeat.id != s.id)).all():
         other.status = "withdrawn"
+        rider_name = rider_name or profile(db, s.rider_id).name
+        alert(db, other_driver, "rider_left", f"{rider_name} found another ride", "Their request to you was withdrawn.", other.trip_id)
     db.flush()
     # requests that no longer fit (the car is full, or they need more seats than are left) are declined
     left = seats_left(db, trip)
@@ -742,6 +837,27 @@ def board(db: Session, trip: Trip, user: User, seat_id: int) -> TripSeat:
     return s
 
 
+def no_show(db: Session, trip: Trip, user: User, seat_id: int) -> TripSeat:
+    """Driver: an approved rider wasn't at their pickup. Their seat is freed and they're told why (it's not the driver
+    leaving without them, so it never counts against the driver). Only from the planned time: before it, a rider
+    who isn't there yet isn't late."""
+    _driver_only(trip, user)
+    s = _seat(db, trip, seat_id)
+    if s.status != "approved":
+        raise TripError(409, "Only an approved rider who hasn't got in yet can be marked as not at their pickup.")
+    if trip.status not in ("open", "started"):
+        raise TripError(409, "This ride has ended.")
+    if now() < utc(trip.depart_at):
+        raise TripError(409, "You can mark a rider as not at their pickup once the planned leaving time has come.")
+    s.status = "no_show"
+    driver = profile(db, user.id)
+    alert(db, s.rider_id, "no_show", "You weren't at your pickup",
+          f"{driver.name} marked you as not at your pickup, so your seat was released. If you were there, "
+          "you can report it from the ride.", trip.id)
+    db.flush()
+    return s
+
+
 def start(db: Session, trip: Trip, user: User) -> Trip:
     _driver_only(trip, user)
     if trip.status != "open":
@@ -756,8 +872,9 @@ def start(db: Session, trip: Trip, user: User) -> Trip:
     return trip
 
 
-def _finish(db: Session, trip: Trip) -> None:
-    """Close the trip: riders never picked up are 'missed'; the driver pays if they left before the time."""
+def _finish(db: Session, trip: Trip, auto: bool = False) -> None:
+    """Close the trip: riders never picked up are 'missed'; the driver pays if they left before the time.
+    auto: nobody ended it, expire_stale closed it long after it should have arrived."""
     trip.status, trip.ended_at = "completed", now()
     trip.started_at = trip.started_at or trip.ended_at
     stop_tracking(db, trip)
@@ -772,10 +889,19 @@ def _finish(db: Session, trip: Trip) -> None:
             s.status = "rejected"
     left_early = utc(trip.started_at) < utc(trip.depart_at) - timedelta(minutes=EARLY_GRACE_MIN)
     driver = profile(db, trip.driver_id)
-    for s in missed:
-        alert(db, s.rider_id, "missed", f"{driver.name} left without you",
-              "The ride ended before you were picked up." + (" They left before the planned time, which lowers their rating." if left_early else ""),
-              trip.id)
+    for s in missed:   # only "left without you" when that's what happened; otherwise say what we know
+        if left_early:
+            title, body = (f"{driver.name} left without you",
+                           "They set off before the planned time and the ride ended before you were picked up, which lowers their rating.")
+        elif auto:
+            title, body = "Your ride was closed", "Nobody ended this ride, so it was closed automatically. You were never marked as picked up."
+        else:
+            title, body = ("The ride ended before your pickup",
+                           f"{driver.name} ended the ride without marking you as picked up. If they never came to your pickup, you can report it from the ride.")
+        alert(db, s.rider_id, "missed", title, body, trip.id)
+    if auto:
+        alert(db, trip.driver_id, "ended", "Your ride was closed",
+              "You didn't end it, so it was closed automatically. End your ride in the app when you arrive next time.", trip.id)
     if missed and left_early:
         _penalty(db, trip, 1, "left_early")
         alert(db, trip.driver_id, "penalty", "Your rating dropped",
@@ -950,9 +1076,11 @@ def rate(db: Session, trip: Trip, user: User, to_id: int, stars: int, comment: s
 def report(db: Session, trip: Trip, user: User, reported_id: int, reasons: list[str], note: str) -> Report:
     if reported_id == user.id:
         raise TripError(422, "You can't report yourself.")
-    involved = {trip.driver_id} | {s.rider_id for s in seats(db, trip)}
+    # only people who were confirmed on the ride: a request that was never approved (or was declined, or withdrawn)
+    # doesn't make you part of it, either to report or to be reported
+    involved = {trip.driver_id} | {s.rider_id for s in seats(db, trip) if s.status in REPORTABLE}
     if user.id not in involved or reported_id not in involved:
-        raise TripError(403, "You can only report people from a ride you were part of.")
+        raise TripError(403, "You can report people from a ride once your seat on it was confirmed.")
     bad = sorted(set(reasons) - set(REPORT_REASONS))
     if bad or not reasons:
         raise TripError(422, "Pick at least one reason from the list.")

@@ -1,5 +1,6 @@
 """Sign-up, sign-in, the signed-in member's own data (messages, rides to rate) and ride feedback."""
 import hashlib
+import hmac
 import secrets
 from datetime import datetime, timedelta, timezone
 
@@ -14,10 +15,10 @@ from .. import mailer
 from ..config import get_settings
 from ..db import get_db
 from ..engine import activation, daycycle, feedback, referral_program, trips
-from ..models import (Alert, Booking, Car, DriverLicence, PayoutInfo, Member, ReferralCode, MemberState, Notification, PasswordReset, PasswordResetCode, Profile, Tenant, Trip, TripSeat,
+from ..models import (Alert, Booking, Car, DriverLicence, EmailVerification, PayoutInfo, Member, ReferralCode, MemberState, Notification, PasswordReset, PasswordResetCode, Profile, Tenant, Trip, TripSeat,
                       User)
 from ..schemas import (DeleteAccountIn, DemoLoginIn, FeedbackIn, ForgotPasswordIn, LoginIn, ReadIn, RegisterIn, ResetPasswordIn,
-                       SignupIn)
+                       SignupIn, VerifyEmailIn)
 from .deps import get_tenant, member_out, tenant_out
 
 router = APIRouter(tags=["account"])
@@ -30,7 +31,8 @@ def session_out(db: Session, user: User) -> dict:
     p = db.get(Profile, user.id)
     return {
         "token": create_token(user),
-        "user": {"id": user.id, "email": user.email, "role": user.role, "member_id": user.member_id},
+        "user": {"id": user.id, "email": user.email, "role": user.role, "member_id": user.member_id,
+                 "email_verified": email_verified(db, user), "email_verification_required": verification_required()},
         "profile": {"name": p.name, "gender": p.gender, "mobile": p.mobile, "rating": trips.rating_of(db, user.id),
                     "car": trips.car_of(db, user.id, show_plate=True), "upi_id": trips.upi_of(db, user.id)} if p else None,
         "tenant": {**tenant_out(tenant), **({"join_code": tenant.join_code} if user.role == "admin" else {})},
@@ -59,8 +61,139 @@ def public_tenant(db: Session) -> Tenant:
     return t
 
 
+# ---------- mobile numbers ----------
+# One stored format per number, so "98765 43210", "+91 98765-43210", "098765 43210" and "919876543210" are the same
+# phone (and the same account): Indian mobiles are kept as +91 and 10 digits, other countries as + and digits.
 def clean_mobile(mobile: str) -> str:
-    return mobile.replace(" ", "").replace("-", "")
+    raw = mobile.strip()
+    digits = "".join(c for c in raw if c.isdigit())
+    if raw.startswith("+"):
+        if digits.startswith("910") and len(digits) == 13:   # +91 0XXXXXXXXXX: the trunk 0 doesn't belong
+            digits = "91" + digits[3:]
+        return "+" + digits
+    if len(digits) == 10:
+        return "+91" + digits
+    if len(digits) == 11 and digits.startswith("0"):
+        return "+91" + digits[1:]
+    if len(digits) == 12 and digits.startswith("91"):
+        return "+" + digits
+    return digits
+
+
+def valid_mobile(mobile: str) -> bool:
+    """A cleaned number: an Indian mobile (+91, then 10 digits starting 6-9) or another country's (8-15 digits)."""
+    if mobile.startswith("+91"):
+        return len(mobile) == 13 and mobile[3] in "6789"
+    return mobile.startswith("+") and 8 <= len(mobile) - 1 <= 15
+
+
+def mobile_variants(mobile: str) -> list[str]:
+    """The ways the same Indian number may have been saved before numbers were cleaned this way."""
+    if not (mobile.startswith("+91") and len(mobile) == 13):
+        return [mobile]
+    n = mobile[3:]
+    return [mobile, n, "0" + n, "91" + n, "+910" + n]
+
+
+def mobile_owner(db: Session, mobile: str, except_user: int | None = None) -> int | None:
+    stmt = select(Profile.user_id).where(Profile.mobile.in_(mobile_variants(mobile)))
+    if except_user is not None:
+        stmt = stmt.where(Profile.user_id != except_user)
+    return db.scalar(stmt.limit(1))
+
+
+def checked_mobile(mobile: str) -> str:
+    m = clean_mobile(mobile)
+    if not valid_mobile(m):
+        raise HTTPException(422, "Enter a valid mobile number, e.g. +91 98765 43210.")
+    return m
+
+
+# ---------- verifying a new account's email ----------
+# Sign-up emails a 6-digit code. While email can actually be sent (an SMTP server is set), posting a ride or asking
+# for a seat waits until the code is entered. Without one (local dev, or a host that blocks SMTP) the code only goes
+# to the server log, so verifying can't be required and accounts work straight away.
+VERIFY_MINUTES = 60
+VERIFY_RESEND_SECONDS = 60
+
+
+def verification_required() -> bool:
+    return bool(get_settings().smtp_host)
+
+
+def email_verified(db: Session, user: User) -> bool:
+    v = db.get(EmailVerification, user.id)
+    return v is None or v.verified_at is not None   # no row: an account from before verification existed
+
+
+def _verify_hash(user_id: int, code: str) -> str:
+    return hashlib.sha256(f"verify-email:{user_id}:{code}".encode()).hexdigest()
+
+
+def _verify_email(name: str, code: str) -> tuple[str, str]:
+    text = (f"Hi {name},\n\nWelcome to FellaRide. Enter this code in the app to confirm your email:\n\n{code}\n\n"
+            f"It works for {VERIFY_MINUTES} minutes. If you didn't sign up, ignore this email.\n\nFellaRide")
+    html = f"""<!doctype html><html><body style="margin:0;background:#EEEDE8;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#101418">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:32px 12px"><tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background:#F8F7F3;border-radius:20px;overflow:hidden;border:1px solid #DCDBD4">
+<tr><td style="background:#101418;padding:22px 28px;color:#F4F4F1;font-size:20px;font-weight:700">Fella<span style="color:#C9973A">Ride</span></td></tr>
+<tr><td style="padding:28px">
+<p style="margin:0 0 6px;font-size:22px;font-weight:700">Confirm your email</p>
+<p style="margin:0 0 22px;color:#5A616B;font-size:15px;line-height:1.5">Hi {name}, welcome to FellaRide. Enter this code in the app:</p>
+<p style="margin:0;font-size:34px;letter-spacing:10px;font-weight:700;color:#A87A22;font-family:Menlo,Consolas,monospace">{code}</p>
+<p style="margin:26px 0 0;color:#5A616B;font-size:13px;line-height:1.5">It works for {VERIFY_MINUTES} minutes. If you didn't sign up, ignore this email.</p>
+</td></tr></table>
+<p style="color:#5A616B;font-size:12px;margin:16px 0 0">FellaRide · Community carpooling</p>
+</td></tr></table></body></html>"""
+    return text, html
+
+
+def send_verification(db: Session, user: User, background: BackgroundTasks) -> None:
+    """A new code (replacing any older one), emailed after the response so sign-up isn't slowed down."""
+    code = f"{secrets.randbelow(10 ** 6):06d}"
+    v = db.get(EmailVerification, user.id) or EmailVerification(user_id=user.id)
+    v.code_hash, v.attempts, v.verified_at = _verify_hash(user.id, code), 0, None
+    v.sent_at, v.expires_at = datetime.now(timezone.utc), datetime.now(timezone.utc) + timedelta(minutes=VERIFY_MINUTES)
+    db.add(v)
+    p = db.get(Profile, user.id)
+    first = p.name.split()[0] if p and p.name else "there"
+    text, html = _verify_email(first, code)
+    background.add_task(mailer.send, user.email, f"{code} is your FellaRide code", text, html)
+
+
+@router.post("/auth/verify-email/send", summary="Email a new 6-digit code to confirm your email",
+             dependencies=[Depends(auth_rate_limit)])
+def resend_verification(background: BackgroundTasks, actor: Actor = Depends(current_actor), db: Session = Depends(get_db)):
+    user = actor.user
+    if email_verified(db, user):
+        return {"ok": True, "verified": True}
+    v = db.get(EmailVerification, user.id)
+    wait = VERIFY_RESEND_SECONDS - (datetime.now(timezone.utc) - _aware(v.sent_at)).total_seconds()
+    if wait > 0:
+        raise HTTPException(429, f"We just sent a code. You can ask for another in {int(wait) + 1} seconds.")
+    send_verification(db, user, background)
+    db.commit()
+    return {"ok": True, "verified": False, "message": f"We've sent a new code to {user.email}. It works for {VERIFY_MINUTES} minutes."}
+
+
+@router.post("/auth/verify-email", summary="Confirm your email with the 6-digit code from the sign-up email",
+             dependencies=[Depends(auth_rate_limit)])
+def verify_email(body: VerifyEmailIn, actor: Actor = Depends(current_actor), db: Session = Depends(get_db)):
+    user = actor.user
+    v = db.get(EmailVerification, user.id)
+    if v is None or v.verified_at:
+        return session_out(db, user)
+    if v.attempts >= CODE_TRIES or _aware(v.expires_at) < datetime.now(timezone.utc):
+        raise HTTPException(400, "This code has expired. Ask for a new one.")
+    if not hmac.compare_digest(v.code_hash, _verify_hash(user.id, body.code)):
+        v.attempts += 1
+        db.commit()
+        left = CODE_TRIES - v.attempts
+        raise HTTPException(400, "That code isn’t right." + (f" {left} {'try' if left == 1 else 'tries'} left." if left > 0
+                                                              else " Ask for a new one."))
+    v.verified_at = datetime.now(timezone.utc)
+    db.commit()
+    return session_out(db, user)
 
 
 @router.post("/auth/login", summary="Sign in with email (or mobile) and password", dependencies=[Depends(auth_rate_limit)])
@@ -69,7 +202,8 @@ def login(body: LoginIn, db: Session = Depends(get_db)):
     if "@" in ident:
         user = db.scalar(select(User).where(User.email == ident))
     else:
-        user = db.scalar(select(User).join(Profile, Profile.user_id == User.id).where(Profile.mobile == clean_mobile(ident)))
+        owner = mobile_owner(db, clean_mobile(ident))
+        user = db.get(User, owner) if owner else None
     if not verify_password(body.password, user.password_hash if user else None):
         raise HTTPException(401, "That email and password don’t match an account.")
     return session_out(db, user)
@@ -206,7 +340,7 @@ def delete_account(body: DeleteAccountIn, actor: Actor = Depends(current_actor),
     m = db.get(Member, user.member_id) if user.member_id else None
     if m:
         m.name, m.email = "Former member", None
-    for model in (Car, DriverLicence, PasswordReset, PayoutInfo, ReferralCode):
+    for model in (Car, DriverLicence, EmailVerification, PasswordReset, PayoutInfo, ReferralCode):
         for row in db.scalars(select(model).where(model.user_id == user.id)):
             db.delete(row)
     for a in db.scalars(select(Alert).where(Alert.user_id == user.id)):
@@ -217,7 +351,7 @@ def delete_account(body: DeleteAccountIn, actor: Actor = Depends(current_actor),
 
 @router.post("/auth/signup", status_code=201, summary="Create an account: name, gender, email, mobile, password, optional join code",
              dependencies=[Depends(auth_rate_limit)])
-def signup(body: SignupIn, db: Session = Depends(get_db)):
+def signup(body: SignupIn, background: BackgroundTasks, db: Session = Depends(get_db)):
     code = (body.join_code or "").strip().upper()
     referrer = referral_program.referrer_by_code(db, body.referral_code)
     if (body.referral_code or "").strip() and referrer is None:
@@ -235,10 +369,10 @@ def signup(body: SignupIn, db: Session = Depends(get_db)):
             raise HTTPException(404, "No community uses that join code. Leave it empty to join everyone.")
     elif tenant is None:
         tenant = public_tenant(db)
-    email, mobile = body.email.strip().lower(), clean_mobile(body.mobile)
+    email, mobile = body.email.strip().lower(), checked_mobile(body.mobile)
     if db.scalar(select(User.id).where(User.email == email)):
         raise HTTPException(409, "An account with this email already exists. Sign in instead.")
-    if db.scalar(select(Profile.user_id).where(Profile.mobile == mobile)):
+    if mobile_owner(db, mobile):
         raise HTTPException(409, "An account with this mobile number already exists. Sign in instead.")
     user = User(tenant_id=tenant.id, email=email, password_hash=hash_password(body.password), role="member")
     db.add(user)
@@ -249,6 +383,7 @@ def signup(body: SignupIn, db: Session = Depends(get_db)):
     except IntegrityError:
         db.rollback()
         raise HTTPException(409, "An account with this email or mobile already exists. Sign in instead.")
+    send_verification(db, user, background)
     # an invited or imported person claims their member record; with a join code you're registered right away
     activation.safe(db, activation.on_signup, user, bool(code))
     # credit whoever brought them in: their referral link, or an email invite that just converted
@@ -262,7 +397,7 @@ def signup(body: SignupIn, db: Session = Depends(get_db)):
 
 @router.post("/auth/register", status_code=201, summary="Join a community with its join code and set up your commute",
              dependencies=[Depends(auth_rate_limit)])
-def register(body: RegisterIn, db: Session = Depends(get_db)):
+def register(body: RegisterIn, background: BackgroundTasks, db: Session = Depends(get_db)):
     tenant = db.scalar(select(Tenant).where(Tenant.join_code == body.join_code.upper()))
     if not tenant:
         raise HTTPException(404, "No community uses that join code. Check it with your organiser.")
@@ -290,6 +425,7 @@ def register(body: RegisterIn, db: Session = Depends(get_db)):
     except IntegrityError:
         db.rollback()
         raise HTTPException(409, "An account with this email already exists. Sign in instead.")
+    send_verification(db, user, background)
     daycycle.refresh_connectors(db, tenant)
     db.commit()
     return session_out(db, user)

@@ -11,7 +11,7 @@ export interface Place { name: string; lat: number; lon: number }
 export interface Car { model: string; colour: string; plate: string | null }
 
 export type TripStatus = 'open' | 'started' | 'completed' | 'cancelled' | 'expired';
-export type SeatStatus = 'pending' | 'approved' | 'rejected' | 'withdrawn' | 'boarded' | 'dropped' | 'missed' | 'cancelled';
+export type SeatStatus = 'pending' | 'approved' | 'rejected' | 'withdrawn' | 'boarded' | 'dropped' | 'missed' | 'no_show' | 'cancelled';
 export interface RateTarget extends Person { role: 'driver' | 'rider'; rated: boolean }
 
 export interface Trip {
@@ -33,9 +33,11 @@ export interface Trip {
   price: Price;
   pay_to: { upi_id: string; amount: number; link: string } | null;
   code: string | null;
-  riders: { seat_id: number; status: SeatStatus; pickup_name: string; seats: number; contribution: number; payment: Payment; person: Person }[];
+  riders: { seat_id: number; status: SeatStatus; pickup_name: string; drop_name: string | null; seats: number; contribution: number; payment: Payment; person: Person }[];
   cancel_until: string;
   can_cancel: boolean;
+  /** 15 minutes past the planned time: an approved rider not yet picked up may leave. */
+  pickup_overdue: boolean;
   tracking: boolean;
   live: LivePosition[];
   to_rate?: RateTarget[];
@@ -137,6 +139,8 @@ export const useReport = () => useMutation({
 });
 export const useMarkAlertsRead = () => useTripAction((ids: number[] | null) => request('/me/alerts/read', { method: 'POST', body: ids ? { ids } : {} }));
 export const saveProfile = (body: { name: string; gender: Gender; mobile: string }) => request<Profile>('/me/profile', { method: 'PUT', body });
+export const verifyEmail = (code: string) => request<import('./types').Session>('/auth/verify-email', { method: 'POST', body: { code } });
+export const resendVerification = () => request<{ ok: boolean; verified: boolean; message?: string }>('/auth/verify-email/send', { method: 'POST' });
 export const shareLocation = (lat: number, lon: number) => request('/me/location', { method: 'POST', body: { lat, lon } });
 export const signup = (body: Record<string, unknown>) => request<import('./types').Session>('/auth/signup', { method: 'POST', body, auth: false });
 

@@ -368,8 +368,9 @@ class TripSeat(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     trip_id: Mapped[int] = mapped_column(ForeignKey("trips.id", ondelete="CASCADE"), index=True)
     rider_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
-    # pending | approved | rejected | withdrawn | boarded | dropped | missed (driver left without them)
-    # | cancelled (approved, then the driver cancelled the ride)
+    # pending | approved | rejected | withdrawn | boarded | dropped | missed (the ride ended before they were
+    # picked up) | no_show (the driver marked them as not at their pickup) | cancelled (approved, then the driver
+    # cancelled the ride)
     status: Mapped[str] = mapped_column(String(12), default="pending")
     pickup_name: Mapped[str] = mapped_column(String(160), default="")
     pickup_lat: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -384,6 +385,30 @@ class TripSeatCount(Base):
     __tablename__ = "trip_seat_counts"
     seat_id: Mapped[int] = mapped_column(ForeignKey("trip_seats.id", ondelete="CASCADE"), primary_key=True)
     count: Mapped[int] = mapped_column(Integer, default=1)
+
+
+class TripSeatDrop(Base):
+    """Where a rider gets off, when they said so in the request. The contribution is charged from pickup to here,
+    the same distance the search quoted. No row means the end of the driver's route. Its own table, no migration."""
+
+    __tablename__ = "trip_seat_drops"
+    seat_id: Mapped[int] = mapped_column(ForeignKey("trip_seats.id", ondelete="CASCADE"), primary_key=True)
+    drop_name: Mapped[str] = mapped_column(String(160), default="")
+    drop_lat: Mapped[float] = mapped_column(Float)
+    drop_lon: Mapped[float] = mapped_column(Float)
+
+
+class EmailVerification(Base):
+    """Proving a new account's email: a 6-digit code (stored hashed), 5 wrong tries and it stops working.
+    No row means an account from before verification existed, treated as verified."""
+
+    __tablename__ = "email_verifications"
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    code_hash: Mapped[str] = mapped_column(String(64))
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class TripLocation(Base):

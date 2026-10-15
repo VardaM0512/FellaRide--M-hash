@@ -16,7 +16,7 @@ from ..engine import activation, referrals
 from ..engine import trips as T
 from ..models import Alert, Member, Profile, Rating, Referral, Report, Tenant, Trip, TripSeat, User
 from ..schemas import BroadcastIn, InviteIn, LocationIn, MessageIn, ProfileIn, RatingIn, ReadIn, ReportIn, SeatRequestIn, TrackIn, TripIn, UpiIn
-from .account import clean_mobile
+from .account import checked_mobile, email_verified, mobile_owner, verification_required
 
 router = APIRouter(tags=["trips"])
 
@@ -25,6 +25,14 @@ def rider_or_driver(actor: Actor = Depends(current_actor)) -> User:
     if actor.is_admin:
         raise HTTPException(403, "Organiser accounts can't post or book rides. Sign in with a member account.")
     return actor.user
+
+
+def verified_member(user: User = Depends(rider_or_driver), db: Session = Depends(get_db)) -> User:
+    """Posting a ride or asking for a seat puts you in a car with strangers: your email must be confirmed first
+    (whenever the server can send the code, see account.verification_required)."""
+    if verification_required() and not email_verified(db, user):
+        raise HTTPException(403, "Confirm your email first: enter the 6-digit code we sent you.")
+    return user
 
 
 def run(fn, *args):
@@ -42,8 +50,8 @@ def _trip(db: Session, user: User, trip_id: int) -> Trip:
 # ---------- me ----------
 @router.put("/me/profile", summary="Set your name, gender and mobile")
 def set_profile(body: ProfileIn, user: User = Depends(rider_or_driver), db: Session = Depends(get_db)):
-    mobile = clean_mobile(body.mobile)
-    if db.scalar(select(Profile.user_id).where(Profile.mobile == mobile, Profile.user_id != user.id)):
+    mobile = checked_mobile(body.mobile)
+    if mobile_owner(db, mobile, except_user=user.id):
         raise HTTPException(409, "Another account already uses this mobile number.")
     p = db.get(Profile, user.id)
     if not p:
@@ -131,7 +139,7 @@ def report_reasons():
 
 # ---------- trips ----------
 @router.post("/trips", status_code=201, summary="Driver: post a ride; people near the route are told")
-def post_trip(body: TripIn, user: User = Depends(rider_or_driver), db: Session = Depends(get_db)):
+def post_trip(body: TripIn, user: User = Depends(verified_member), db: Session = Depends(get_db)):
     t, notified = run(T.post_trip, db, user, body)
     db.commit()
     return T.trip_out(db, t, user.id, {"notified": notified})
@@ -166,8 +174,9 @@ def _action(trip_id: int, user: User, db: Session, fn, *args) -> dict:
 
 
 @router.post("/trips/{trip_id}/request", summary="Rider: ask for a seat")
-def request_seat(trip_id: int, body: SeatRequestIn, user: User = Depends(rider_or_driver), db: Session = Depends(get_db)):
-    return _action(trip_id, user, db, T.request_seat, body.pickup_name, body.pickup_lat, body.pickup_lon, body.seats)
+def request_seat(trip_id: int, body: SeatRequestIn, user: User = Depends(verified_member), db: Session = Depends(get_db)):
+    return _action(trip_id, user, db, T.request_seat, body.pickup_name, body.pickup_lat, body.pickup_lon, body.seats,
+                   body.drop_name, body.drop_lat, body.drop_lon)
 
 
 @router.post("/trips/{trip_id}/location", summary="Driver or confirmed rider: share your live position on this ride")
@@ -213,6 +222,11 @@ def reject(trip_id: int, seat_id: int, user: User = Depends(rider_or_driver), db
 @router.post("/trips/{trip_id}/seats/{seat_id}/board", summary="Driver: this rider got in")
 def board(trip_id: int, seat_id: int, user: User = Depends(rider_or_driver), db: Session = Depends(get_db)):
     return _action(trip_id, user, db, T.board, seat_id)
+
+
+@router.post("/trips/{trip_id}/seats/{seat_id}/no-show", summary="Driver: this rider wasn't at their pickup (from the planned time)")
+def no_show(trip_id: int, seat_id: int, user: User = Depends(rider_or_driver), db: Session = Depends(get_db)):
+    return _action(trip_id, user, db, T.no_show, seat_id)
 
 
 @router.post("/trips/{trip_id}/start", summary="Driver: setting off")

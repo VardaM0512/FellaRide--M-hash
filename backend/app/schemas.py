@@ -179,6 +179,10 @@ class SignupIn(BaseModel):
     referral_code: str | None = Field(None, max_length=12, pattern=r"^[A-Za-z0-9]*$", description="Optional: the code of the friend who invited you")
 
 
+class VerifyEmailIn(BaseModel):
+    code: str = Field(min_length=6, max_length=6, pattern=r"^[0-9]{6}$", description="The 6-digit code from the sign-up email")
+
+
 class ProfileIn(BaseModel):
     name: str = PersonName
     gender: Gender
@@ -234,6 +238,9 @@ class SeatRequestIn(BaseModel):
     seats: int = Field(1, ge=1, le=8, description="How many seats you need (you and friends travelling with you)")
     pickup_lat: float | None = Field(None, ge=-90, le=90)
     pickup_lon: float | None = Field(None, ge=-180, le=180)
+    drop_name: str = Field("", max_length=160, pattern=r"^[^<>{}]*$")
+    drop_lat: float | None = Field(None, ge=-90, le=90, description="Where you get off; you pay up to here (empty: the end of the route)")
+    drop_lon: float | None = Field(None, ge=-180, le=180)
 
 
 class MessageIn(BaseModel):

@@ -7,9 +7,15 @@ from .conftest import API, bearer
 from .test_trips import ROUTE, alerts, post_trip, signup
 
 
-def _capture_mail(monkeypatch):
+def _capture_mail(monkeypatch, kind="reset"):
+    """Emails of one kind: "reset" (forgot password) or "verify" (the sign-up code)."""
     sent = []
-    monkeypatch.setattr(mailer, "send", lambda to, subject, body, html=None: sent.append((to, subject, body, html)) or True)
+
+    def send(to, subject, body, html=None):
+        if ("reset" in subject) == (kind == "reset"):
+            sent.append((to, subject, body, html))
+        return True
+    monkeypatch.setattr(mailer, "send", send)
     return sent
 
 
@@ -136,3 +142,63 @@ def test_rider_sees_every_driver_on_the_route_and_can_ask_several(client):
     assert client.get(f"{API}/trips/{tids[1]}", headers=rh).json()["my_seat"]["status"] == "withdrawn"
     for tid, (_, h, _) in zip(tids, drivers):   # tidy up: other tests search the same road
         client.post(f"{API}/trips/{tid}/cancel", headers=h)
+
+
+def _signup_body(email, mobile):
+    return {"name": "Phone P", "gender": "female", "email": email, "mobile": mobile, "password": "trip-pass-123"}
+
+
+def test_one_mobile_number_in_any_format_is_one_account(client):
+    r = client.post(f"{API}/auth/signup", json=_signup_body("fmt1@example.org", "+91 77001 00001"))
+    assert r.status_code == 201 and r.json()["profile"]["mobile"] == "+917700100001"
+    for same in ("7700100001", "07700100001", "917700100001", "+91-77001-00001", "+91 0 77001 00001"):
+        dup = client.post(f"{API}/auth/signup", json=_signup_body(f"fmt-{same}@example.org".replace("+", "p").replace(" ", ""), same))
+        assert dup.status_code == 409, same
+    # signing in works with any of those formats too
+    assert client.post(f"{API}/auth/login", json={"email": "77001 00001", "password": "trip-pass-123"}).status_code == 200
+    # not a mobile number
+    assert client.post(f"{API}/auth/signup", json=_signup_body("fmt2@example.org", "12345678")).status_code == 422
+    assert client.post(f"{API}/auth/signup", json=_signup_body("fmt3@example.org", "+91 12345 67890")).status_code == 422
+
+
+def test_numbers_saved_before_cleaning_still_count(client):
+    """Accounts from before numbers were cleaned may hold '7700200002' or '+917700200002': still the same phone."""
+    from app.db import SessionLocal
+    from app.models import Profile
+    uid = client.post(f"{API}/auth/signup", json=_signup_body("old1@example.org", "+91 77002 00002")).json()["user"]["id"]
+    with SessionLocal() as db:
+        db.get(Profile, uid).mobile = "7700200002"   # the old format
+        db.commit()
+    assert client.post(f"{API}/auth/signup", json=_signup_body("old2@example.org", "+91 77002 00002")).status_code == 409
+    assert client.post(f"{API}/auth/login", json={"email": "+91 77002 00002", "password": "trip-pass-123"}).status_code == 200
+
+
+def test_email_must_be_confirmed_before_riding_when_email_can_be_sent(client, monkeypatch):
+    from app.config import get_settings
+    monkeypatch.setattr(get_settings(), "smtp_host", "smtp.test")
+    sent = _capture_mail(monkeypatch, "verify")
+    s = client.post(f"{API}/auth/signup", json=_signup_body("verify1@example.org", "+91 77003 00003")).json()
+    h = bearer(s["token"])
+    assert s["user"]["email_verified"] is False and s["user"]["email_verification_required"] is True
+    assert len(sent) == 1 and sent[0][0] == "verify1@example.org"
+    code = re.search(r"\n\n(\d{6})\n\n", sent[0][2]).group(1)
+
+    # no posting rides or asking for seats yet
+    blocked = client.post(f"{API}/trips", headers=h, json={})
+    assert blocked.status_code == 403 and "Confirm your email" in blocked.json()["detail"]
+    assert client.post(f"{API}/trips/1/request", headers=h, json={}).status_code == 403
+
+    # resending waits a minute; a wrong code counts down; the right one confirms
+    assert client.post(f"{API}/auth/verify-email/send", headers=h).status_code == 429
+    wrong = "000000" if code != "000000" else "111111"
+    bad = client.post(f"{API}/auth/verify-email", headers=h, json={"code": wrong})
+    assert bad.status_code == 400 and "4 tries left" in bad.json()["detail"]
+    ok = client.post(f"{API}/auth/verify-email", headers=h, json={"code": code})
+    assert ok.status_code == 200 and ok.json()["user"]["email_verified"] is True
+    assert client.post(f"{API}/trips", headers=h, json={}).status_code == 422   # past the gate: now just an empty form
+
+
+def test_without_an_email_server_accounts_work_straight_away(client):
+    s = client.post(f"{API}/auth/signup", json=_signup_body("verify2@example.org", "+91 77004 00004")).json()
+    assert s["user"]["email_verified"] is False and s["user"]["email_verification_required"] is False
+    assert client.post(f"{API}/trips", headers=bearer(s["token"]), json={}).status_code == 422   # not blocked

@@ -390,3 +390,167 @@ def test_parallel_approvals_of_the_last_seat_approve_exactly_one(client):
     t = client.get(f"{API}/trips/{tid}", headers=dh).json()
     assert t["seats_left"] == 0 and sum(r["status"] == "approved" for r in t["riders"]) == 1
     client.post(f"{API}/trips/{tid}/cancel", headers=dh)
+
+
+# ---------- stuck rides, price, no-shows, reports, notifications ----------
+def _in_the_past(tid, minutes):
+    """Move a ride's planned (and start) time `minutes` earlier, as if that much time had gone by."""
+    from app.db import SessionLocal
+    from app.models import Trip
+    with SessionLocal() as db:
+        t = db.get(Trip, tid)
+        t.depart_at -= timedelta(minutes=minutes)
+        if t.started_at:
+            t.started_at -= timedelta(minutes=minutes)
+        db.commit()
+
+
+def _ask_another_ride(client, rh) -> int:
+    """Can this rider book again? Asks for a seat on a fresh ride (then cancelled: tests share one road)."""
+    _, oh, _ = signup(client, "Other D.")
+    other = post_trip(client, oh, minutes=45)["id"]
+    status = client.post(f"{API}/trips/{other}/request", headers=rh, json={}).status_code
+    client.post(f"{API}/trips/{other}/cancel", headers=oh)
+    return status
+
+
+def test_a_started_ride_nobody_ended_is_closed_and_frees_its_riders(client):
+    tid, dh, rh = _approved_pair(client, minutes=0)
+    client.post(f"{API}/trips/{tid}/start", headers=dh)   # on time, so nobody "left early"
+    assert _ask_another_ride(client, rh) == 409
+
+    _in_the_past(tid, 4 * 60)   # 25-minute route, set off 4 hours ago, never ended
+    assert client.get(f"{API}/me/trips", headers=rh).json()["active"] is None
+    t = client.get(f"{API}/trips/{tid}", headers=rh).json()
+    assert t["status"] == "completed" and t["my_seat"]["status"] == "missed"
+    assert any(a["title"] == "Your ride was closed" and a["trip_id"] == tid for a in alerts(client, rh))
+    assert any(a["title"] == "Your ride was closed" and a["trip_id"] == tid for a in alerts(client, dh))
+    assert not any("left without you" in a["title"] for a in alerts(client, rh))
+    assert _ask_another_ride(client, rh) == 200
+
+
+def test_an_open_ride_that_never_set_off_expires_and_everyone_is_told(client):
+    tid, dh, rh = _approved_pair(client, minutes=20)
+    _, ph, _ = signup(client, "Pending P.")
+    client.post(f"{API}/trips/{tid}/request", headers=ph, json={})
+    _in_the_past(tid, 4 * 60)
+    client.get(f"{API}/me/trips", headers=dh)
+    assert client.get(f"{API}/trips/{tid}", headers=dh).json()["status"] == "expired"
+    for h in (dh, rh, ph):
+        assert any(a["kind"] == "expired" and a["trip_id"] == tid for a in alerts(client, h))
+    assert _ask_another_ride(client, rh) == 200
+
+
+def test_a_rider_not_picked_up_can_leave_after_the_wait(client):
+    tid, dh, rh = _approved_pair(client, minutes=5)
+    r = client.post(f"{API}/trips/{tid}/withdraw", headers=rh)          # inside the cutoff: locked
+    assert r.status_code == 409 and "15 minutes" in r.json()["detail"]
+    client.post(f"{API}/trips/{tid}/start", headers=dh)
+    _in_the_past(tid, 25)                                                # 20 min past the planned time, still not picked up
+    t = client.get(f"{API}/trips/{tid}", headers=rh).json()
+    assert t["pickup_overdue"] is True and t["can_cancel"] is True
+    assert client.post(f"{API}/trips/{tid}/withdraw", headers=rh).status_code == 200
+    assert any(a["title"].endswith("stopped waiting") for a in alerts(client, dh))
+    assert _ask_another_ride(client, rh) == 200
+    client.post(f"{API}/trips/{tid}/end", headers=dh)
+
+
+def test_the_rider_pays_what_the_search_showed(client):
+    d, dh, _ = signup(client, "Quote D.")
+    r, rh, _ = signup(client, "Quote R.")
+    when = (datetime.now(timezone.utc) + timedelta(minutes=45)).isoformat()
+    tid = client.post(f"{API}/trips", headers=dh, json={
+        "from_name": "Lakeview", "from_lat": 12.97, "from_lon": 77.55, "to_name": "Tech Park", "to_lat": 12.97, "to_lon": 77.65,
+        "depart_at": when, "route": ROUTE, "route_km": 11.2, "route_min": 25, "seats": 2, "licence_confirmed": True,
+        "cost_share_confirmed": True, "price_per_km": 4.5}).json()["id"]
+    # a short hop near the start: the Rs 30 minimum; the whole route would be Rs 50
+    trip = {"from_lat": 12.97, "from_lon": 77.55, "to_lat": 12.97, "to_lon": 77.58}
+    quote = next(x for x in client.get(f"{API}/trips/search", headers=rh, params=trip).json() if x["id"] == tid)
+    assert quote["per_seat"] == 30 and quote["price"]["full_route_per_seat"] == 50
+
+    # dropping before the pickup makes no sense on this route
+    bad = client.post(f"{API}/trips/{tid}/request", headers=rh, json={"pickup_lat": 12.97, "pickup_lon": 77.58, "drop_lat": 12.97, "drop_lon": 77.55})
+    assert bad.status_code == 422
+
+    t = client.post(f"{API}/trips/{tid}/request", headers=rh, json={
+        "pickup_name": "Lakeview", "pickup_lat": 12.97, "pickup_lon": 77.55, "drop_name": "Mill Rd", "drop_lat": 12.97, "drop_lon": 77.58,
+        "seats": 2}).json()
+    assert t["my_seat"]["contribution"] == 2 * quote["per_seat"] == 60
+    seat = client.get(f"{API}/trips/{tid}", headers=dh).json()["riders"][0]
+    assert seat["contribution"] == 60 and seat["drop_name"] == "Mill Rd"
+    client.post(f"{API}/trips/{tid}/seats/{seat['seat_id']}/approve", headers=dh)
+    assert any("Your contribution is Rs 60" in a["body"] for a in alerts(client, rh))
+
+    # asking again without a drop: to the end of the route, like the ride's own price says
+    client.post(f"{API}/trips/{tid}/withdraw", headers=rh)
+    t = client.post(f"{API}/trips/{tid}/request", headers=rh, json={"pickup_lat": 12.97, "pickup_lon": 77.55}).json()
+    assert t["my_seat"]["contribution"] == 50
+    client.post(f"{API}/trips/{tid}/cancel", headers=dh)
+
+
+def test_a_no_show_is_not_told_the_driver_left_without_them(client):
+    tid, dh, rh = _approved_pair(client, minutes=30)
+    seat = client.get(f"{API}/trips/{tid}", headers=dh).json()["riders"][0]["seat_id"]
+    early = client.post(f"{API}/trips/{tid}/seats/{seat}/no-show", headers=dh)
+    assert early.status_code == 409 and "planned leaving time" in early.json()["detail"]
+    assert client.post(f"{API}/trips/{tid}/seats/{seat}/no-show", headers=rh).status_code == 403
+
+    _in_the_past(tid, 35)
+    t = client.post(f"{API}/trips/{tid}/seats/{seat}/no-show", headers=dh).json()
+    assert t["riders"][0]["status"] == "no_show" and t["seats_left"] == t["seats_total"]   # the seat is free again
+    client.post(f"{API}/trips/{tid}/start", headers=dh)
+    client.post(f"{API}/trips/{tid}/end", headers=dh)
+    mine = alerts(client, rh)
+    assert any(a["kind"] == "no_show" and a["title"] == "You weren't at your pickup" for a in mine)
+    assert not any("left without you" in a["title"] for a in mine)
+    assert client.get(f"{API}/auth/me", headers=dh).json()["profile"]["rating"]["count"] == 0   # no penalty for the driver
+    assert tid in [x["id"] for x in client.get(f"{API}/me/trips", headers=rh).json()["history"]]
+
+
+def test_ending_on_time_without_a_rider_does_not_blame_the_driver(client):
+    tid, dh, rh = _approved_pair(client, minutes=10)
+    _in_the_past(tid, 15)                       # the planned time has passed: not leaving early
+    client.post(f"{API}/trips/{tid}/start", headers=dh)
+    client.post(f"{API}/trips/{tid}/end", headers=dh)
+    assert [a["title"] for a in alerts(client, rh) if a["kind"] == "missed"] == ["The ride ended before your pickup"]
+
+
+def test_only_confirmed_riders_can_report_or_be_reported(client):
+    d, dh, _ = signup(client, "Report D.")
+    r, rh, _ = signup(client, "Report R.")
+    tid = post_trip(client, dh)["id"]
+    client.post(f"{API}/trips/{tid}/request", headers=rh, json={})
+    body = {"trip_id": tid, "reasons": ["harassment"]}
+    assert client.post(f"{API}/reports", headers=rh, json={**body, "reported_id": d}).status_code == 403   # pending
+    assert client.post(f"{API}/reports", headers=dh, json={**body, "reported_id": r}).status_code == 403
+    seat = client.get(f"{API}/trips/{tid}", headers=dh).json()["riders"][0]["seat_id"]
+    client.post(f"{API}/trips/{tid}/seats/{seat}/approve", headers=dh)
+    assert client.post(f"{API}/reports", headers=rh, json={**body, "reported_id": d}).status_code == 201
+    assert client.post(f"{API}/reports", headers=dh, json={**body, "reported_id": r}).status_code == 201
+    # a declined request doesn't make you part of the ride either
+    _, xh, _ = signup(client, "Declined X.")
+    client.post(f"{API}/trips/{tid}/request", headers=xh, json={})
+    x_seat = next(s["seat_id"] for s in client.get(f"{API}/trips/{tid}", headers=dh).json()["riders"] if s["status"] == "pending")
+    client.post(f"{API}/trips/{tid}/seats/{x_seat}/reject", headers=dh)
+    assert client.post(f"{API}/reports", headers=xh, json={**body, "reported_id": d}).status_code == 403
+    client.post(f"{API}/trips/{tid}/cancel", headers=dh)
+
+
+def test_drivers_and_riders_are_told_about_withdrawals_and_cancellations(client):
+    _, ah, _ = signup(client, "Driver A.")
+    _, bh, _ = signup(client, "Driver B.")
+    _, rh, _ = signup(client, "Choosy R.")
+    a, b = post_trip(client, ah)["id"], post_trip(client, bh)["id"]
+    client.post(f"{API}/trips/{a}/request", headers=rh, json={})
+    client.post(f"{API}/trips/{a}/withdraw", headers=rh)
+    assert any(x["title"] == "Choosy R. withdrew their request" for x in alerts(client, ah))
+    # asking both, then B approves: A hears the rider found another ride
+    client.post(f"{API}/trips/{a}/request", headers=rh, json={})
+    client.post(f"{API}/trips/{b}/request", headers=rh, json={})
+    seat = client.get(f"{API}/trips/{b}", headers=bh).json()["riders"][0]["seat_id"]
+    client.post(f"{API}/trips/{b}/seats/{seat}/approve", headers=bh)
+    assert any(x["title"] == "Choosy R. found another ride" and x["trip_id"] == a for x in alerts(client, ah))
+    # and a driver cancelling tells their riders
+    client.post(f"{API}/trips/{b}/cancel", headers=bh)
+    assert any(x["kind"] == "cancelled" and x["trip_id"] == b for x in alerts(client, rh))
+    client.post(f"{API}/trips/{a}/cancel", headers=ah)

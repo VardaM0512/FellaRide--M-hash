@@ -2,7 +2,7 @@
 import { useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { ApiError } from '../api/client';
-import { useTrip, useTripStep, type LivePosition, type Person, type Place, type Trip } from '../api/trips';
+import { useTrip, useTripStep, type LivePosition, type Person, type Place, type SeatStatus, type Trip } from '../api/trips';
 import MapView, { type MapPoint } from '../components/MapView';
 import { Avatar, ErrorNote, Icon, Skeleton } from '../components/ui';
 import { useAnnounce } from '../lib/announce';
@@ -54,13 +54,17 @@ function CodeBox({ code }: { code: string }) {
   );
 }
 
+/** Seats whose rider was confirmed on the ride: only they can report, or be reported (the server checks too). */
+const REPORTABLE: SeatStatus[] = ['approved', 'boarded', 'dropped', 'missed', 'no_show', 'cancelled'];
+
 function DriverPanel({ trip, act, busy, report }: { trip: Trip; act: (path: string, ok?: string) => void; busy: boolean; report: (p: Person) => void }) {
   const [boardId, setBoardId] = useState<number | ''>('');
   const pending = trip.riders.filter((r) => r.status === 'pending');
   const approved = trip.riders.filter((r) => r.status === 'approved');
-  const group = trip.riders.filter((r) => ['approved', 'boarded', 'dropped', 'missed'].includes(r.status));
+  const group = trip.riders.filter((r) => ['approved', 'boarded', 'dropped', 'missed', 'no_show'].includes(r.status));
   const live = LIVE.includes(trip.status);
   const anyoneIn = trip.riders.some((r) => r.status === 'boarded' || r.status === 'dropped');
+  const due = minutesUntil(trip.depart_at) <= 0;   // from the planned time, a rider who isn't there can be marked as a no-show
 
   function start() {
     const early = minutesUntil(trip.depart_at);
@@ -70,7 +74,7 @@ function DriverPanel({ trip, act, busy, report }: { trip: Trip; act: (path: stri
   }
   function end() {
     const msg = approved.length
-      ? `${approved.length} approved rider${approved.length > 1 ? 's haven’t' : ' hasn’t'} got in yet and will be marked as left behind. End the ride for everyone?`
+      ? `${approved.length} approved rider${approved.length > 1 ? 's haven’t' : ' hasn’t'} got in yet and will be marked as not picked up. If someone wasn’t at their pickup, mark them “Not at pickup” first. End the ride for everyone?`
       : 'End the ride for everyone?';
     if (window.confirm(msg)) act('end', 'Ride ended.');
   }
@@ -83,7 +87,7 @@ function DriverPanel({ trip, act, busy, report }: { trip: Trip; act: (path: stri
           {pending.length === 0 && <p className="small muted">No requests waiting. People near your route have been told about your ride.</p>}
           {pending.map((r) => (
             <div key={r.seat_id} className="request">
-              <PersonLine p={r.person} extra={[r.seats > 1 ? `Needs ${r.seats} seats` : '', r.pickup_name ? `Pickup: ${r.pickup_name.split(',')[0]}` : ''].filter(Boolean).join(' · ') || undefined} onReport={() => report(r.person)} />
+              <PersonLine p={r.person} extra={[r.seats > 1 ? `Needs ${r.seats} seats` : '', r.pickup_name ? `Pickup: ${r.pickup_name.split(',')[0]}` : '', r.drop_name ? `Drop: ${r.drop_name.split(',')[0]}` : ''].filter(Boolean).join(' · ') || undefined} />
               <div className="btn-row">
                 <button className="btn btn-quiet btn-small" disabled={busy} onClick={() => act(`seats/${r.seat_id}/reject`, `Declined ${r.person.name}.`)}>Decline</button>
                 <button className="btn btn-ride btn-small" disabled={busy || r.seats > trip.seats_left} onClick={() => act(`seats/${r.seat_id}/approve`, `Approved ${r.person.name}.`)}>
@@ -107,6 +111,11 @@ function DriverPanel({ trip, act, busy, report }: { trip: Trip; act: (path: stri
                     ? <span className="chip pay-state ok">{Icon.check} Received</span>
                     : <button className="btn btn-quiet btn-small" disabled={busy} onClick={() => act(`seats/${r.seat_id}/received`, `Marked ${r.person.name}’s ${rupees(r.contribution)} as received.`)}>Received {rupees(r.contribution)}</button>}
                 </div>
+              )}
+              {live && due && r.status === 'approved' && (
+                <button className="btn btn-quiet btn-small" disabled={busy}
+                  onClick={() => window.confirm(`${r.person.name} wasn’t at their pickup? Their seat is released and they’re told.`) && act(`seats/${r.seat_id}/no-show`, `Marked ${r.person.name} as not at their pickup.`)}>
+                  Not at pickup</button>
               )}
             </div>
           ))}
@@ -197,13 +206,16 @@ function PayBox({ trip, act, busy }: { trip: Trip; act: (path: string, ok?: stri
 
 /** Backing out after a seat is confirmed: allowed until 10 minutes before departure, then locked. */
 function CancelNote({ trip }: { trip: Trip }) {
+  if (trip.pickup_overdue && trip.you === 'rider') {
+    return <p className="small muted cancel-note">{Icon.clock} You haven’t been picked up 15 minutes after the planned time, so you can leave this ride and book another.</p>;
+  }
   return trip.can_cancel
     ? <p className="small muted cancel-note">{Icon.clock} You can cancel until {clock(trip.cancel_until)}.</p>
     : <p className="small muted cancel-note">{Icon.clock} Cancelling closed at {clock(trip.cancel_until)}, 10 minutes before departure. Use the chat if something has come up.</p>;
 }
 
-function RiderPanel({ trip, me, act, busy, report, pickup, wanted = 1 }: {
-  trip: Trip; me: number; act: (path: string, ok?: string, body?: unknown) => void; busy: boolean; report: (p: Person) => void; pickup: Place | null;
+function RiderPanel({ trip, me, act, busy, report, pickup, drop, wanted = 1 }: {
+  trip: Trip; me: number; act: (path: string, ok?: string, body?: unknown) => void; busy: boolean; report: (p: Person) => void; pickup: Place | null; drop: Place | null;
   wanted?: number;
 }) {
   const seat = trip.my_seat;
@@ -218,7 +230,7 @@ function RiderPanel({ trip, me, act, busy, report, pickup, wanted = 1 }: {
     <>
       <section className="stack" aria-labelledby="drv-h">
         <h3 id="drv-h">Driver</h3>
-        <PersonLine p={trip.driver} role="Driver" call={!!onboard} onReport={seat ? () => report(trip.driver) : undefined} />
+        <PersonLine p={trip.driver} role="Driver" call={!!onboard} onReport={seat && REPORTABLE.includes(seat.status) ? () => report(trip.driver) : undefined} />
         <CarLine trip={trip} />
         <p className="price-tag">{trip.price.free ? <><strong>Free ride</strong> · the driver isn’t asking for anything</>
           : <><strong>{rupees(seat && seat.status !== 'withdrawn' ? seat.contribution : trip.price.full_route_per_seat)}</strong>
@@ -240,7 +252,8 @@ function RiderPanel({ trip, me, act, busy, report, pickup, wanted = 1 }: {
                   {trip.seats_left > 1 && <SeatStepper value={Math.min(need, trip.seats_left)} onChange={setNeed} max={trip.seats_left} />}
                   <button className="btn btn-ride btn-block" disabled={busy}
                     onClick={() => act('request', n === 1 ? 'Seat requested.' : `${n} seats requested.`,
-                      { ...(pickup ? { pickup_name: pickup.name, pickup_lat: pickup.lat, pickup_lon: pickup.lon } : {}), seats: n })}>
+                      { ...(pickup ? { pickup_name: pickup.name, pickup_lat: pickup.lat, pickup_lon: pickup.lon } : {}),
+                        ...(drop ? { drop_name: drop.name, drop_lat: drop.lat, drop_lon: drop.lon } : {}), seats: n })}>
                     Ask {trip.driver.name.split(' ')[0]} for {n === 1 ? 'a seat' : `${n} seats`}</button>
                 </>
               : <p className="note note-info">This ride is full.</p>
@@ -255,7 +268,7 @@ function RiderPanel({ trip, me, act, busy, report, pickup, wanted = 1 }: {
               <PayBox trip={trip} act={act} busy={busy} />
               <button className="btn btn-danger btn-block" disabled={busy || !trip.can_cancel}
                 onClick={() => window.confirm(`Cancel your ${seat.seats > 1 ? `${seat.seats} seats` : 'seat'}? ${trip.driver.name.split(' ')[0]} is told straight away.`) && act('withdraw', 'Your seat is cancelled.')}>
-                Cancel my {seat.seats > 1 ? `${seat.seats} seats` : 'seat'}</button>
+                {trip.pickup_overdue ? 'Leave this ride' : `Cancel my ${seat.seats > 1 ? `${seat.seats} seats` : 'seat'}`}</button>
               <CancelNote trip={trip} />
             </>
           ) : seat.status === 'boarded' ? (
@@ -271,7 +284,8 @@ function RiderPanel({ trip, me, act, busy, report, pickup, wanted = 1 }: {
           )}
         </section>
       )}
-      {!live && seat?.status === 'missed' && <p className="note note-error">The driver ended this ride before picking you up.</p>}
+      {!live && seat?.status === 'missed' && <p className="note note-error">This ride ended before you were marked as picked up.</p>}
+      {seat?.status === 'no_show' && <p className="note note-error">{trip.driver.name.split(' ')[0]} marked you as not at your pickup, so your seat was released. If you were there, you can report it.</p>}
       {!live && seat?.status === 'dropped' && !seat.payment.driver_got && <PayBox trip={trip} act={act} busy={busy} />}
     </>
   );
@@ -279,7 +293,7 @@ function RiderPanel({ trip, me, act, busy, report, pickup, wanted = 1 }: {
 
 export default function TripScreen() {
   const id = Number(useParams().id);
-  const { state } = useLocation() as { state: { notified?: number; pickup?: Place; seats?: number } | null };
+  const { state } = useLocation() as { state: { notified?: number; pickup?: Place; drop?: Place | null; seats?: number } | null };
   const { session } = useSession();
   const me = session?.user.id ?? 0;
   const navigate = useNavigate();
@@ -342,7 +356,7 @@ export default function TripScreen() {
 
       {isDriver
         ? <DriverPanel trip={trip} act={act} busy={step.isPending} report={setReporting} />
-        : <RiderPanel trip={trip} me={me} act={act} busy={step.isPending} report={setReporting} pickup={state?.pickup ?? null} wanted={state?.seats ?? 1} />}
+        : <RiderPanel trip={trip} me={me} act={act} busy={step.isPending} report={setReporting} pickup={state?.pickup ?? null} drop={state?.drop ?? null} wanted={state?.seats ?? 1} />}
 
       {trip.to_rate && trip.to_rate.some((p) => !p.rated) && <RatePanel trip={trip} />}
       {inGroup && <Chat trip={trip} isDriver={isDriver} me={me} />}

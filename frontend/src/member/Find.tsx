@@ -74,7 +74,9 @@ export default function Find() {
     navigator.vibrate?.(12);
     try {
       const [updated] = await Promise.all([
-        step.mutateAsync({ tripId: trip.id, path: 'request', body: { pickup_name: from?.name ?? '', pickup_lat: from?.lat, pickup_lon: from?.lon, seats: need } }),
+        step.mutateAsync({ tripId: trip.id, path: 'request', body: { pickup_name: from?.name ?? '', pickup_lat: from?.lat, pickup_lon: from?.lon, seats: need,
+          // the drop makes the contribution the one shown here (pickup to drop), not the whole route
+          ...(to ? { drop_name: to.name, drop_lat: to.lat, drop_lon: to.lon } : {}) } }),
         new Promise((r) => setTimeout(r, motionReduced ? 0 : 1100)),
       ]);
       setResults((rs) => rs && rs.map((t) => (t.id === trip.id ? { ...t, ...updated, pickup_km: t.pickup_km, drop_km: t.drop_km } : t)));
@@ -165,9 +167,9 @@ export default function Find() {
                 </p>
               )}
               <div className="btn-row">
-                <button className="btn btn-quiet btn-small" onClick={() => navigate(`/trip/${t.id}`, { state: { pickup: from, seats: need } })}>Details</button>
+                <button className="btn btn-quiet btn-small" onClick={() => navigate(`/trip/${t.id}`, { state: { pickup: from, drop: to, seats: need } })}>Details</button>
                 {t.my_seat && t.my_seat.status !== 'withdrawn'
-                  ? <button className="btn btn-small" onClick={() => navigate(`/trip/${t.id}`, { state: { pickup: from, seats: need } })}>{SEAT_STATUS[t.my_seat.status]}</button>
+                  ? <button className="btn btn-small" onClick={() => navigate(`/trip/${t.id}`, { state: { pickup: from, drop: to, seats: need } })}>{SEAT_STATUS[t.my_seat.status]}</button>
                   : t.seats_left < need
                     ? <button className="btn btn-small" disabled>Only {t.seats_left} left</button>
                     : <button className="btn btn-ride btn-small" disabled={step.isPending} onClick={() => ask(t)}>{need === 1 ? 'Ask for a seat' : `Ask for ${need} seats`}</button>}
