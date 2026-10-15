@@ -3,7 +3,7 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { deleteAccount } from '../api/hooks';
-import { saveProfile, shareLocation, useMyTrips, type Gender } from '../api/trips';
+import { saveProfile, shareLocation, useMyTrips, useReferrals, type Gender } from '../api/trips';
 import { useImpact, type Badge } from '../api/community';
 import { Avatar, CountUp, ErrorNote, Icon, Skeleton } from '../components/ui';
 import { notificationsSupported } from '../lib/notify';
@@ -167,6 +167,16 @@ function DeleteAccount() {
   );
 }
 
+/** Your referral tier and points, linking to the Invite page. */
+function ReferralLink() {
+  const r = useReferrals().data;
+  return (
+    <Link to="/invite" className="btn btn-invite btn-block">
+      {Icon.invite} Refer friends{r ? ` · ${r.tier.name} · ${r.points} points` : ' and earn points'}
+    </Link>
+  );
+}
+
 export default function You() {
   const { session, signOut } = useSession();
   const navigate = useNavigate();
@@ -203,7 +213,7 @@ export default function You() {
         <span><strong>Display & accessibility</strong><br /><span className="small">Dark mode, text size, motion and contrast</span></span>
       </Link>
 
-      <Link to="/invite" className="btn btn-invite btn-block">{Icon.invite} Invite people who commute your way</Link>
+      <ReferralLink />
 
       <section className="card" aria-labelledby="alerts-h"><h3 id="alerts-h">Notifications</h3><PhoneAlerts /><NearbyAlerts /></section>
 

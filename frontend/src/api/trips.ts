@@ -145,3 +145,26 @@ export interface TripsOverview {
   reports: { id: number; trip_id: number; category: string; severity: 'high' | 'medium' | 'low'; status: 'open' | 'reviewed';
     reasons: string[]; note: string; reporter: Person; reported: Person; created_at: string }[];
 }
+
+// ---------- referrals ----------
+export interface Referrals {
+  code: string;
+  link_path: string;
+  community: string;
+  joined: number;
+  rode: number;
+  points: number;
+  points_per: { joined: number; first_ride: number };
+  tier: { name: string; next: string | null; next_at: number | null };
+  tiers: { name: string; at: number }[];
+  friends: { name: string; source: 'link' | 'invite'; stage: 'joined' | 'rode'; joined_at: string }[];
+  invites_waiting: number;
+  leaderboard: { user_id: number; name: string; joined: number }[];
+}
+export interface ReferralLookup { code: string; referrer: string; community: string }
+
+export const useReferrals = () => {
+  const uid = useUserKey();
+  return useQuery({ queryKey: ['my-referrals', uid], queryFn: () => request<Referrals>('/me/referrals'), refetchInterval: 20_000 });
+};
+export const lookupReferral = (code: string) => request<ReferralLookup>(`/referral/${encodeURIComponent(code)}`, { auth: false });

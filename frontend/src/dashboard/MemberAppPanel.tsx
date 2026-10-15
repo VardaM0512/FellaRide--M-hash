@@ -33,6 +33,32 @@ function Broadcast() {
   );
 }
 
+interface ReferralReport {
+  joined: number; rode: number; by_link: number; by_invite: number; share_of_members: number; first_ride_rate: number;
+  top: { user_id: number; name: string; joined: number }[];
+}
+
+/** Referrals: how many members came in through other members, how many of them rode, and who brings people in. */
+function Referrals({ tenantId }: { tenantId: number }) {
+  const q = useQuery({ queryKey: ['org-referrals', tenantId], queryFn: () => request<ReferralReport>(`/tenants/${tenantId}/referrals`), refetchInterval: 20_000 });
+  const r = q.data;
+  return (
+    <div className="stack">
+      <h3 style={{ fontSize: 16 }}>Referrals</h3>
+      {!r ? (q.error ? <ErrorNote error={q.error} onRetry={() => q.refetch()} /> : <Skeleton h={90} />) : (
+        <>
+          <p>{r.joined} {r.joined === 1 ? 'member' : 'members'} joined through a friend ({r.by_link} by link, {r.by_invite} by email invite)
+            · {Math.round(r.share_of_members * 100)}% of app members</p>
+          <p>{r.rode} of them took a first ride ({Math.round(r.first_ride_rate * 100)}%)</p>
+          {r.top.length > 0
+            ? <p className="small">Top referrers: {r.top.map((x) => `${x.name} (${x.joined})`).join(' · ')}</p>
+            : <p className="small muted">No referrals yet. Members share their link from Refer friends.</p>}
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function MemberAppPanel() {
   const { tenantId } = useMe();
   const qc = useQueryClient();
@@ -80,6 +106,7 @@ export default function MemberAppPanel() {
               ))}
             </ul>
           </div>
+          <Referrals tenantId={tenantId} />
           <Broadcast />
         </div>
       )}

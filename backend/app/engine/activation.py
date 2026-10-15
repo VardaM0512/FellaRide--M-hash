@@ -220,6 +220,23 @@ def invite_by_email(db: Session, user: User, name: str, email: str) -> Referral:
     return referrals.send(db, tenant, inviter, invitee)
 
 
+def credit_referral(db: Session, referrer: User, referred: User) -> None:
+    """Someone signed up through a member's referral link: the engine sees a converted referral, so the
+    referrer counts in the funnel ("Brought someone in") and the growth graph gets a referral edge."""
+    tenant = _tenant_for(db, referred)
+    inviter, invitee = member_of(db, referrer.id), member_of(db, referred.id)
+    if tenant is None or inviter is None or invitee is None or inviter.id == invitee.id:
+        return
+    if db.scalar(select(Referral.id).where(Referral.invitee_id == invitee.id, Referral.status == "joined")):
+        return
+    db.add(Referral(tenant_id=tenant.id, inviter_id=inviter.id, invitee_id=invitee.id, day=tenant.current_day,
+                    source="link", status="joined"))
+    invitee.invited_by_id = inviter.id
+    lifecycle.mark_referrer(db, inviter, tenant.current_day)
+    _event(db, tenant, inviter, "referral_joined", invitee_id=invitee.id, via="link")
+    db.flush()
+
+
 def on_trip_posted(db: Session, trip: Trip, user: User) -> None:
     m = ensure_member(db, user, home=(trip.from_lat, trip.from_lon, trip.from_name),
                       dest=(trip.to_name, trip.to_lat, trip.to_lon), depart_at=trip.depart_at, seats=trip.seats_total)

@@ -13,8 +13,8 @@ from ..auth import (DELETED_DOMAIN, Actor, auth_rate_limit, create_token, curren
 from .. import mailer
 from ..config import get_settings
 from ..db import get_db
-from ..engine import activation, daycycle, feedback, trips
-from ..models import (Alert, Booking, Car, DriverLicence, Member, MemberState, Notification, PasswordReset, Profile, Tenant, Trip, TripSeat,
+from ..engine import activation, daycycle, feedback, referral_program, trips
+from ..models import (Alert, Booking, Car, DriverLicence, Member, ReferralCode, MemberState, Notification, PasswordReset, Profile, Tenant, Trip, TripSeat,
                       User)
 from ..schemas import (DeleteAccountIn, DemoLoginIn, FeedbackIn, ForgotPasswordIn, LoginIn, ReadIn, RegisterIn, ResetPasswordIn,
                        SignupIn)
@@ -148,7 +148,7 @@ def delete_account(body: DeleteAccountIn, actor: Actor = Depends(current_actor),
     m = db.get(Member, user.member_id) if user.member_id else None
     if m:
         m.name, m.email = "Former member", None
-    for model in (Car, DriverLicence, PasswordReset):
+    for model in (Car, DriverLicence, PasswordReset, ReferralCode):
         for row in db.scalars(select(model).where(model.user_id == user.id)):
             db.delete(row)
     for a in db.scalars(select(Alert).where(Alert.user_id == user.id)):
@@ -161,14 +161,21 @@ def delete_account(body: DeleteAccountIn, actor: Actor = Depends(current_actor),
              dependencies=[Depends(auth_rate_limit)])
 def signup(body: SignupIn, db: Session = Depends(get_db)):
     code = (body.join_code or "").strip().upper()
+    referrer = referral_program.referrer_by_code(db, body.referral_code)
+    if (body.referral_code or "").strip() and referrer is None:
+        raise HTTPException(404, "That referral code doesn't exist. Check it, or leave it empty.")
+    tenant = None
+    if referrer and not code:   # a friend's referral link brings you into their community
+        tenant = db.get(Tenant, referrer.tenant_id)
+        code = tenant.join_code or ""
     default = get_settings().default_join_code.strip().upper()
-    if not code and default and db.scalar(select(Tenant.id).where(Tenant.join_code == default)):
+    if tenant is None and not code and default and db.scalar(select(Tenant.id).where(Tenant.join_code == default)):
         code = default   # no code given: join the main community (FELLARIDE_DEFAULT_JOIN_CODE), on its dashboard
-    if code:
+    if tenant is None and code:
         tenant = db.scalar(select(Tenant).where(Tenant.join_code == code))
         if not tenant:
             raise HTTPException(404, "No community uses that join code. Leave it empty to join everyone.")
-    else:
+    elif tenant is None:
         tenant = public_tenant(db)
     email, mobile = body.email.strip().lower(), clean_mobile(body.mobile)
     if db.scalar(select(User.id).where(User.email == email)):
@@ -186,6 +193,11 @@ def signup(body: SignupIn, db: Session = Depends(get_db)):
         raise HTTPException(409, "An account with this email or mobile already exists. Sign in instead.")
     # an invited or imported person claims their member record; with a join code you're registered right away
     activation.safe(db, activation.on_signup, user, bool(code))
+    # credit whoever brought them in: their referral link, or an email invite that just converted
+    if referrer:
+        activation.safe(db, referral_program.record, referrer, user, "link")
+    else:
+        activation.safe(db, referral_program.credit_email_invite, user)
     db.commit()
     return session_out(db, user)
 

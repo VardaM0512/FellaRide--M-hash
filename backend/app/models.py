@@ -296,6 +296,27 @@ class PasswordReset(Base):
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class ReferralCode(Base):
+    """Each member's personal referral code, shared as a sign-up link (…/signup?ref=CODE)."""
+
+    __tablename__ = "referral_codes"
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    code: Mapped[str] = mapped_column(String(12), unique=True, index=True)
+
+
+class AppReferral(Base):
+    """Who brought whom into the member app: through a referral link or an email invite. One row per new account.
+    (The engine's own `referrals` table keeps working for the funnel and the growth graph.)"""
+
+    __tablename__ = "app_referrals"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    referrer_user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    referred_user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), unique=True)
+    source: Mapped[str] = mapped_column(String(10), default="link")    # link | invite
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
 class DriverLicence(Base):
     """A driver's own declaration that they hold a valid driving licence, ticked each time they offer a ride.
     The licence itself isn't checked; this records who declared it and when."""

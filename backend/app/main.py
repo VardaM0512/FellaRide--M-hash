@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 
 from sqlalchemy import select
 
-from .api import account, community, engagement, expansion, insights, rides, social, trips
+from .api import account, community, engagement, expansion, insights, referral, rides, social, trips
 from .api.account import public_tenant
 from .config import get_settings
 from .db import SessionLocal, init_db
@@ -84,5 +84,5 @@ def health():
     return {"status": "ok", "model_loaded": get_settings().scorer_path.exists()}
 
 
-for r in (account.router, community.router, rides.router, engagement.router, insights.router, trips.router, social.router, expansion.router):
+for r in (account.router, community.router, rides.router, engagement.router, insights.router, trips.router, social.router, expansion.router, referral.router):
     app.include_router(r, prefix="/api/v1")

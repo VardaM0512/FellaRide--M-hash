@@ -167,6 +167,7 @@ class SignupIn(BaseModel):
     mobile: str = Mobile
     password: str = Password
     join_code: str | None = Field(None, max_length=16, pattern=r"^[A-Za-z0-9]*$", description="Optional community code")
+    referral_code: str | None = Field(None, max_length=12, pattern=r"^[A-Za-z0-9]*$", description="Optional: the code of the friend who invited you")
 
 
 class ProfileIn(BaseModel):

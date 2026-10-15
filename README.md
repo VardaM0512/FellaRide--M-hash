@@ -45,6 +45,7 @@ FellaRide turns a community (a college, company, residential society, alumni net
 | **Notifications** | An in-app banner and an Alerts tab with an unread badge. **Phone notifications** come through a service worker when the app is in the background. |
 | **You** | Profile (edit name, gender and mobile), your car, rating, ride history, notification and location settings, and **Delete my account** (confirmed with your password: open rides are cancelled, personal details removed, past rides kept as "Deleted user"). |
 | **Community** | This week's shared challenge, what the community has achieved together (rides, km shared, estimated CO2 saved), a board where members post, react and reply, live ride activity, a friendly leaderboard, and each member's own impact and badges. |
+| **Refer friends** | Your personal **referral code and link** (share on WhatsApp, the share sheet, or copy). Anyone who signs up with it joins your community and is credited to you; so is anyone who signs up with an email you invited. **+10 points** when a friend joins, **+40** when they take their first shared ride. Tiers count friends who actually rode: Bronze at 1, Silver at 3, Gold at 10. You see each friend's stage (joined, first ride done) and the community's top referrers; the organiser dashboard shows referral sign-ups, first-ride rate and top referrers. |
 | **Invites** | Invite someone by name and email. You get a ready-made message with a sign-up link. They appear in your community straight away, and when they sign up with that email the invite counts for you. |
 | **Suggestions you can act on** | The engine's nudges ("3 people head your way at 08:05. Offer a ride?") arrive in Alerts with a button: **Offer a ride**, **Find a ride** or **Invite people**. |
 | **Demo community** | Sign in as any synthetic member in one tap. Gender and mobile are asked once. |
@@ -383,6 +384,7 @@ Tables are created automatically on startup. Sprint 3 only **added** tables, and
 | Community | `POST /tenants` · `GET /tenants` · `GET /tenants/{t}` · `POST /tenants/{t}/members/import` · `POST /tenants/{t}/members/{m}/register` |
 | Intelligence | `GET /tenants/{t}/members` · `GET /tenants/{t}/members/{m}` · `GET /tenants/{t}/clusters` · `GET /tenants/{t}/members/{m}/recommendations` |
 | Engine rides | `POST /tenants/{t}/rides/offers` · `/requests` · `/requests/{q}/cancel` · `/match` · `GET /tenants/{t}/rides` · `POST …/offers/{o}/start` · `/finish` · `POST …/bookings/{b}/feedback` |
+| Referral programme | `GET /referral/{code}` (public: first name and community) · `GET /me/referrals` · `GET /tenants/{t}/referrals` (organiser) · sign-up takes an optional `referral_code` |
 | Nudges and referrals | `POST /tenants/{t}/interventions/plan` · `GET …/interventions` · `POST …/interventions/{i}/respond` · `GET …/members/{m}/invite-suggestions` · `POST …/referrals` · `POST …/referrals/{r}/accept` |
 | Insights | `GET /tenants/{t}/metrics` · `/metrics/funnel` · `/metrics/timeseries` · `/graph` · `/model` |
 | Network expansion (organiser) | `GET /tenants/{t}/expansion` · `POST …/expansion/run` · `POST …/expansion/autopilot` (synthetic only) · `POST …/expansion/corridors` · `POST …/expansion/demo-neighbour` |
@@ -396,7 +398,7 @@ Full, interactive details are at `/docs` on the running API.
 
 ```bash
 cd backend
-pytest -q          # 55 tests
+pytest -q          # 58 tests
 ```
 
 They cover the following.

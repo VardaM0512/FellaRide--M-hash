@@ -1,7 +1,7 @@
-import { useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { createCommunity, demoLogin, forgotPassword, login, resetPassword, useDemoAccounts, usePublicCommunities } from '../api/hooks';
-import { signup, type Gender, type Place } from '../api/trips';
+import { lookupReferral, signup, type Gender, type Place, type ReferralLookup } from '../api/trips';
 import MapView from '../components/MapView';
 import PlaceField from '../components/PlaceField';
 import { nameOf } from '../lib/places';
@@ -232,10 +232,19 @@ export function Signup() {
   const [params] = useSearchParams();
   const { signIn } = useSession();
   const navigate = useNavigate();
-  const [f, setF] = useState({ name: '', gender: '' as Gender | '', email: params.get('email') || '', mobile: '', password: '', join_code: params.get('code') || '' });
+  const [f, setF] = useState({ name: '', gender: '' as Gender | '', email: params.get('email') || '', mobile: '', password: '',
+    join_code: params.get('code') || '', referral_code: (params.get('ref') || '').toUpperCase() });
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
+  const [inviter, setInviter] = useState<ReferralLookup | null>(null);
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v }));
+  // a referral code (from a friend's link, or typed): show whose it is, so people know where they'll land
+  useEffect(() => {
+    const code = f.referral_code.trim();
+    if (code.length < 5) { setInviter(null); return; }
+    const t = window.setTimeout(() => { lookupReferral(code).then(setInviter).catch(() => setInviter(null)); }, 400);
+    return () => window.clearTimeout(t);
+  }, [f.referral_code]);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -246,6 +255,7 @@ export function Signup() {
       const s = await signup({
         name: f.name.trim(), gender: f.gender, email: f.email.trim(), mobile: f.mobile.trim(), password: f.password,
         ...(f.join_code.trim() ? { join_code: f.join_code.trim() } : {}),
+        ...(f.referral_code.trim() ? { referral_code: f.referral_code.trim() } : {}),
       });
       signIn(s);
       navigate('/', { replace: true });
@@ -255,6 +265,11 @@ export function Signup() {
   return (
     <Shell title="Create your account">
       <form onSubmit={submit} className="stack-lg" noValidate>
+        {inviter && (
+          <p className="note note-ok" role="status">
+            <strong>{inviter.referrer}</strong> invited you to share rides in <strong>{inviter.community}</strong>. You’ll join their community.
+          </p>
+        )}
         <Section n={1} title="Your account" hint="Sign in later with your email or mobile number.">
           <label className="field">Email<input type="email" inputMode="email" autoComplete="email" value={f.email} onChange={(e) => set('email', e.target.value)} required placeholder="you@example.com" /></label>
           <label className="field">Mobile number<input type="tel" inputMode="tel" autoComplete="tel" placeholder="+91 98765 43210" value={f.mobile} onChange={(e) => set('mobile', e.target.value)} required />
@@ -271,10 +286,13 @@ export function Signup() {
             </div>
           </div>
         </Section>
-        <Section n={3} title="Your community" hint="Optional. Leave it empty to join the main community.">
+        <Section n={3} title="Your community" hint={inviter ? `Optional. Leave it empty to join ${inviter.referrer}’s community.` : 'Optional. Leave it empty to join the main community.'}>
           <label className="field">Join code
             <input value={f.join_code} onChange={(e) => set('join_code', e.target.value.toUpperCase())} autoCapitalize="characters" autoComplete="off" spellCheck={false} maxLength={16} placeholder="e.g. DEMO2026" className="code-input" />
             <span className="hint">From your college, company or society.</span></label>
+          <label className="field">Referral code
+            <input value={f.referral_code} onChange={(e) => set('referral_code', e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))} autoCapitalize="characters" autoComplete="off" spellCheck={false} maxLength={12} placeholder="Optional, from a friend" className="code-input" />
+            <span className="hint">{inviter ? `Code from ${inviter.referrer} ✓` : 'If a friend invited you, their code credits them.'}</span></label>
         </Section>
         <ErrorNote error={error} />
         <button className="btn btn-primary btn-block" disabled={busy || !f.email || !f.mobile || !f.password || !f.name}>{busy ? 'Creating…' : 'Create account'}</button>

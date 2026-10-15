@@ -12,7 +12,7 @@ import { useSession } from '../lib/session';
 import { ThemeToggle } from './Settings';
 
 const TITLES: Record<string, string> = {
-  '/': 'FellaRide', '/offer': 'Offer a ride', '/find': 'Find a ride', '/alerts': 'Alerts', '/me': 'You', '/invite': 'Invite',
+  '/': 'FellaRide', '/offer': 'Offer a ride', '/find': 'Find a ride', '/alerts': 'Alerts', '/me': 'You', '/invite': 'Refer friends',
   '/community': 'Community', '/settings': 'Settings',
 };
 
