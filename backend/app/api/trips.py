@@ -88,12 +88,13 @@ def read_alerts(body: ReadIn, user: User = Depends(rider_or_driver), db: Session
 @router.get("/me/trips", summary="Your ride in progress, requests you're waiting on, and past rides")
 def my_trips(user: User = Depends(rider_or_driver), db: Session = Depends(get_db)):
     active = T.active_for(db, user.id)
-    out = {
-        "active": T.trip_out(db, active, user.id) if active else None,
-        "pending": [T.trip_out(db, t, user.id) for t in T.pending_for(db, user.id)],
-        "history": [T.trip_out(db, t, user.id, {"to_rate": sum(not p["rated"] for p in T.rate_targets(db, t, user.id))})
-                    for t in T.history_for(db, user.id)],
-    }
+    with T.read_cache(db):   # one set of lookups for every ride in the list (read-only from here)
+        out = {
+            "active": T.trip_out(db, active, user.id) if active else None,
+            "pending": [T.trip_out(db, t, user.id) for t in T.pending_for(db, user.id)],
+            "history": [T.trip_out(db, t, user.id, {"to_rate": sum(not p["rated"] for p in T.rate_targets(db, t, user.id))})
+                        for t in T.history_for(db, user.id)],
+        }
     db.commit()   # expire_stale may have closed old trips
     return out
 

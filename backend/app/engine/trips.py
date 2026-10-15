@@ -86,14 +86,50 @@ def leaves_in(dt: datetime) -> str:
 
 
 # ---------- people ----------
+# ---------- read cache while building ride details ----------
+# Showing a ride looks up the same small rows many times (seat counts, price, payments, profiles, ratings), and each
+# lookup is a round trip to the database (~70 ms to Supabase). While trip_out / search / a list of rides is being
+# built (read-only, after any changes were committed), these lookups are remembered for that one request only.
+def _cached(db: Session, key: tuple, fn):
+    memo = db.info.get("trip_memo")
+    if memo is None:
+        return fn()
+    if key not in memo:
+        memo[key] = fn()
+    return memo[key]
+
+
+class read_cache:
+    """with read_cache(db): ... remembers lookups for the block (nested blocks share the outer one)."""
+
+    def __init__(self, db: Session):
+        self.db, self.own = db, False
+
+    def __enter__(self):
+        if "trip_memo" not in self.db.info:
+            self.db.info["trip_memo"], self.own = {}, True
+        return self
+
+    def __exit__(self, *exc):
+        if self.own:
+            self.db.info.pop("trip_memo", None)
+        return False
+
+
 def rating_of(db: Session, user_id: int) -> dict:
-    stars = list(db.scalars(select(Rating.stars).where(Rating.to_id == user_id).order_by(Rating.id.desc()).limit(RATING_WINDOW)))
-    if not stars:
+    return _cached(db, ("rating", user_id), lambda: _rating_of(db, user_id))
+
+
+def _rating_of(db: Session, user_id: int) -> dict:
+    # the latest RATING_WINDOW ratings and the overall count, in one round trip
+    rows = db.execute(select(Rating.stars, func.count().over().label("total")).where(Rating.to_id == user_id)
+                      .order_by(Rating.id.desc()).limit(RATING_WINDOW)).all()
+    if not rows:
         return {"average": None, "count": 0}
+    stars = [r.stars for r in rows]
     weights = [RECENCY ** i for i in range(len(stars))]
     avg = sum(s * w for s, w in zip(stars, weights)) / sum(weights)
-    total = db.scalar(select(func.count(Rating.id)).where(Rating.to_id == user_id))
-    return {"average": round(avg, 2), "count": total}
+    return {"average": round(avg, 2), "count": rows[0].total}
 
 
 def profile(db: Session, user_id: int) -> Profile:
@@ -115,7 +151,7 @@ def person(db: Session, user_id: int, show_mobile: bool = False) -> dict:
 def car_of(db: Session, user_id: int, show_plate: bool = False) -> dict | None:
     """The driver's car. Model and colour help riders choose a ride; the number plate is for finding the right
     car at pickup, so like the mobile number it is shown only to the driver and approved riders."""
-    c = db.get(Car, user_id)
+    c = _cached(db, ("car", user_id), lambda: db.get(Car, user_id))
     if not c:
         return None
     return {"model": c.model, "colour": c.colour, "plate": c.plate if show_plate else None}
@@ -168,16 +204,38 @@ def get_trip(db: Session, tenant_id: int, trip_id: int) -> Trip:
 
 
 def seats(db: Session, trip: Trip) -> list[TripSeat]:
+    return _cached(db, ("seats", trip.id), lambda: _seats(db, trip))
+
+
+def _seats(db: Session, trip: Trip) -> list[TripSeat]:
+    rows = _seats_query(db, trip)
+    memo = db.info.get("trip_memo")
+    if memo is not None and rows:   # showing a ride: load its seat counts, payments and people in one go each
+        ids = [x.id for x in rows]
+        counts = {c.seat_id: c for c in db.scalars(select(TripSeatCount).where(TripSeatCount.seat_id.in_(ids)))}
+        pays = {p.seat_id: p for p in db.scalars(select(SeatPayment).where(SeatPayment.seat_id.in_(ids)))}
+        for i in ids:
+            memo.setdefault(("seat_count", i), counts.get(i))
+            memo.setdefault(("payment", i), pays.get(i))
+        list(db.scalars(select(Profile).where(Profile.user_id.in_([x.rider_id for x in rows] + [trip.driver_id]))))
+    return rows
+
+
+def _seats_query(db: Session, trip: Trip) -> list[TripSeat]:
     return list(db.scalars(select(TripSeat).where(TripSeat.trip_id == trip.id).order_by(TripSeat.id)))
 
 
 def seat_of(db: Session, trip: Trip, user_id: int) -> TripSeat | None:
+    return _cached(db, ("seat_of", trip.id, user_id), lambda: _seat_of(db, trip, user_id))
+
+
+def _seat_of(db: Session, trip: Trip, user_id: int) -> TripSeat | None:
     return db.scalar(select(TripSeat).where(TripSeat.trip_id == trip.id, TripSeat.rider_id == user_id))
 
 
 def seat_count(db: Session, seat: TripSeat) -> int:
     """How many seats this request is for (1 unless the rider booked for friends too)."""
-    c = db.get(TripSeatCount, seat.id)
+    c = _cached(db, ("seat_count", seat.id), lambda: db.get(TripSeatCount, seat.id))
     return c.count if c else 1
 
 
@@ -196,6 +254,10 @@ def seats_word(n: int) -> str:
 
 
 def seats_left(db: Session, trip: Trip) -> int:
+    return _cached(db, ("seats_left", trip.id), lambda: _seats_left(db, trip))
+
+
+def _seats_left(db: Session, trip: Trip) -> int:
     taken = db.scalar(
         select(func.coalesce(func.sum(func.coalesce(TripSeatCount.count, 1)), 0))
         .select_from(TripSeat).outerjoin(TripSeatCount, TripSeatCount.seat_id == TripSeat.id)
@@ -205,7 +267,7 @@ def seats_left(db: Session, trip: Trip) -> int:
 
 # ---------- cost sharing (see pricing.py) ----------
 def per_km_of(db: Session, trip: Trip) -> float:
-    row = db.get(TripPrice, trip.id)
+    row = _cached(db, ("price", trip.id), lambda: db.get(TripPrice, trip.id))
     return row.per_km if row else pricing.default_per_km(trip.seats_total)
 
 
@@ -222,12 +284,12 @@ def seat_contribution(db: Session, trip: Trip, s: TripSeat) -> int:
 
 
 def payment_of(db: Session, s: TripSeat) -> dict:
-    p = db.get(SeatPayment, s.id)
+    p = _cached(db, ("payment", s.id), lambda: db.get(SeatPayment, s.id))
     return {"rider_paid": bool(p and p.rider_paid_at), "driver_got": bool(p and p.driver_got_at)}
 
 
 def upi_of(db: Session, user_id: int) -> str | None:
-    row = db.get(PayoutInfo, user_id)
+    row = _cached(db, ("upi", user_id), lambda: db.get(PayoutInfo, user_id))
     return row.upi_id if row else None
 
 
@@ -258,6 +320,11 @@ def in_group(db: Session, trip: Trip, user_id: int) -> bool:
 
 
 def trip_out(db: Session, trip: Trip, viewer_id: int, extra: dict | None = None) -> dict:
+    with read_cache(db):
+        return _trip_out(db, trip, viewer_id, extra)
+
+
+def _trip_out(db: Session, trip: Trip, viewer_id: int, extra: dict | None = None) -> dict:
     is_driver = trip.driver_id == viewer_id
     mine = None if is_driver else seat_of(db, trip, viewer_id)
     member = is_driver or bool(mine and mine.status in IN_GROUP)
@@ -349,6 +416,14 @@ def search(db: Session, tenant_id: int, user_id: int, from_lat: float, from_lon:
         when = utc(when)
         stmt = stmt.where(Trip.depart_at.between(when - timedelta(minutes=90), when + timedelta(minutes=90)))
     out = []
+    with read_cache(db):
+        out = _search_rows(db, stmt, user_id, from_lat, from_lon, to_lat, to_lon)
+    out.sort(key=lambda r: r["pickup_km"] + (r["drop_km"] or 0))
+    return out
+
+
+def _search_rows(db: Session, stmt, user_id: int, from_lat: float, from_lon: float, to_lat: float | None, to_lon: float | None) -> list[dict]:
+    out = []
     for t in db.scalars(stmt.order_by(Trip.depart_at).limit(300)):
         pickup_km, pi = nearest_on_route(t.route, from_lat, from_lon)
         if pickup_km > NEAR_KM:
@@ -364,7 +439,6 @@ def search(db: Session, tenant_id: int, user_id: int, from_lat: float, from_lon:
         out.append(trip_out(db, t, user_id, {"pickup_km": round(pickup_km, 2),
                                               "drop_km": round(drop_km, 2) if drop_km is not None else None,
                                               "per_seat": contribution(db, t, rider_km), "rider_km": round(rider_km, 1)}))
-    out.sort(key=lambda r: r["pickup_km"] + (r["drop_km"] or 0))
     return out
 
 

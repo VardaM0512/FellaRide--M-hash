@@ -75,19 +75,21 @@ function useUserKey() {
 
 export const useMyTrips = () => {
   const uid = useUserKey();
-  return useQuery({ queryKey: ['trips', 'mine', uid], queryFn: () => request<MyTrips>('/me/trips'), refetchInterval: 10_000 });
+  return useQuery({ queryKey: ['trips', 'mine', uid], queryFn: () => request<MyTrips>('/me/trips'), refetchInterval: 20_000 });
 };
 
 export const useTrip = (id: number) => {
   const uid = useUserKey();
-  return useQuery({ queryKey: ['trips', id, uid], queryFn: () => request<Trip>(`/trips/${id}`), refetchInterval: 5_000 });
+  // every 5 s while the car is being tracked live, otherwise every 12 s (each refresh is a dozen database lookups)
+  return useQuery({ queryKey: ['trips', id, uid], queryFn: () => request<Trip>(`/trips/${id}`),
+    refetchInterval: (q) => (q.state.data?.tracking ? 5_000 : 12_000) });
 };
 
 export const useAlerts = () => {
   const uid = useUserKey();
   return useQuery({
     queryKey: ['alerts', uid], queryFn: () => request<Alerts>('/me/alerts?limit=60'),
-    refetchInterval: 8_000, refetchIntervalInBackground: true,
+    refetchInterval: 15_000, refetchIntervalInBackground: false,
   });
 };
 
