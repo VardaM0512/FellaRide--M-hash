@@ -1,0 +1,78 @@
+{
+  "features": [
+    "has_car",
+    "corridor_density",
+    "recent_rides",
+    "social_degree",
+    "past_response",
+    "bias"
+  ],
+  "report": {
+    "driver": {
+      "shipped": true,
+      "samples": 554,
+      "split": "random",
+      "positive_rate": 0.265,
+      "holdout_auc": 0.759,
+      "weights": {
+        "has_car": -0.0,
+        "corridor_density": -0.039,
+        "recent_rides": 0.562,
+        "social_degree": -0.415,
+        "past_response": 1.995,
+        "bias": -0.0
+      },
+      "intercept": -1.758
+    },
+    "rider": {
+      "shipped": true,
+      "samples": 1914,
+      "split": "random",
+      "positive_rate": 0.294,
+      "holdout_auc": 0.654,
+      "weights": {
+        "has_car": 0.0,
+        "corridor_density": 0.498,
+        "recent_rides": 0.84,
+        "social_degree": 0.459,
+        "past_response": 1.003,
+        "bias": -0.004
+      },
+      "intercept": -1.948
+    },
+    "connector": {
+      "shipped": false,
+      "samples": 52,
+      "split": "random",
+      "positive_rate": 0.231,
+      "holdout_auc": 0.795,
+      "weights": {
+        "has_car": 0.238,
+        "corridor_density": 0.796,
+        "recent_rides": 0.0,
+        "social_degree": -0.252,
+        "past_response": 0.745,
+        "bias": 0.0
+      },
+      "intercept": -1.391
+    },
+    "referrer": {
+      "shipped": true,
+      "samples": 306,
+      "split": "random",
+      "positive_rate": 0.121,
+      "holdout_auc": 0.671,
+      "weights": {
+        "has_car": -0.269,
+        "corridor_density": 0.299,
+        "recent_rides": 0.733,
+        "social_degree": 0.261,
+        "past_response": 0.445,
+        "bias": 0.0
+      },
+      "intercept": -2.375
+    }
+  },
+  "trained_at": "2026-10-14T18:22:11.875096+00:00",
+  "data": "synthetic (labelled)"
+}

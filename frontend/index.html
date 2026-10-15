@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#EEEDE8" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0B0E11" media="(prefers-color-scheme: dark)" />
+    <meta name="description" content="FellaRide: find the people in your community who commute your way." />
+    <link rel="icon" href="/brand/fella-logo.png" type="image/png" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <title>FellaRide</title>
+    <script>
+      // apply saved display settings before the first paint (see src/lib/prefs.tsx)
+      (function () {
+        var p = {}; try { p = JSON.parse(localStorage.getItem('fellaride.prefs') || '{}'); } catch (e) {}
+        var mq = function (q) { return window.matchMedia && window.matchMedia(q).matches; };
+        var r = document.documentElement, dark = p.theme === 'dark' || (p.theme !== 'light' && mq('(prefers-color-scheme: dark)'));
+        r.dataset.theme = dark ? 'dark' : 'light';
+        r.dataset.text = p.text || 'normal';
+        r.dataset.motion = p.reduceMotion || mq('(prefers-reduced-motion: reduce)') ? 'reduce' : 'full';
+        r.dataset.contrast = p.highContrast || mq('(prefers-contrast: more)') ? 'more' : 'normal';
+        r.dataset.links = p.underlineLinks ? 'underline' : 'plain';
+        r.style.colorScheme = dark ? 'dark' : 'light';
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

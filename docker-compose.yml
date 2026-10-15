@@ -1,0 +1,43 @@
+services:
+  # Local Postgres, only started with: docker compose --profile localdb up --build
+  # (and no FELLARIDE_DATABASE_URL in .env). By default the API uses Supabase from .env.
+  db:
+    image: postgres:16-alpine
+    profiles: ["localdb"]
+    environment:
+      POSTGRES_DB: fellaride
+      POSTGRES_USER: ${POSTGRES_USER:-fellaride}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-fellaride} -d fellaride"]
+      interval: 5s
+      retries: 10
+
+  api:
+    build: ./backend
+    env_file: .env
+    environment:
+      # Uses FELLARIDE_DATABASE_URL from .env (e.g. Supabase) when set, otherwise the local db container.
+      FELLARIDE_DATABASE_URL: ${FELLARIDE_DATABASE_URL:-postgresql+psycopg://${POSTGRES_USER:-fellaride}:${POSTGRES_PASSWORD:-change-me}@db:5432/fellaride}
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+        required: false   # skipped when the localdb profile is off
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        # where the browser reaches the API
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+    ports:
+      - "3000:80"   # open http://localhost:3000 (already allowed by FELLARIDE_CORS_ORIGINS)
+    depends_on:
+      - api
+
+volumes:
+  pgdata:

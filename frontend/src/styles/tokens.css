@@ -1,0 +1,133 @@
+/* FellaRide design tokens: "Midnight & Brass". A blue-black ink on soft off-white (bone page, ivory cards, never
+   bright white), with one warm metal signal, brass, for what is live or yours (the next action, your streak, the
+   current tab). Brass is always a fill or a mark with ink on top, or a mark on a dark card; never text on a light
+   surface. Colour with a job: Fella Blue for riders and links, ember for drivers, green for success, red for errors.
+   Derived from fellaride.com (black, orange, sky blue, green), deepened for daily use. One typeface: Geist.
+   Every text colour clears WCAG AA (4.5:1) on the surface it sits on.
+   Token names are historical (lime = brass signal, peacock = blue accent, marigold = driver ember, jamun = links). */
+:root {
+  --brand-green: #008a00;   /* the logo only */
+  --lime: #C9973A;          /* brass, the signal: fills and marks, ink on top */
+  --lime-deep: #A87A22;     /* deeper brass for marks on light surfaces (not text) */
+
+  --mist: #EEEDE8;      /* page background: bone, an off-white */
+  --paper: #F8F7F3;     /* cards and sheets: ivory, never bright white */
+  --ink: #101418;       /* text, primary buttons, dark passes */
+  --ink-2: #1B2027;     /* raised surfaces on ink */
+  --fog: #5A616B;       /* secondary text */
+  --marigold: #B4532A;  /* drivers: ember markers */
+  --peacock: #1A66BD;   /* Fella Blue: progress, highlights, riders */
+  --jamun: #1A66BD;     /* links */
+  --success: #137036;   /* confirmations */
+  --chilli: #C23A2E;    /* errors and cancelled rides only */
+
+  --line: #DCDBD4;      /* hairlines */
+  --mist-2: #E5E4DE;    /* filled inputs, skeletons, tracks */
+  --mist-3: #DCDBD4;    /* hover on filled surfaces */
+  --peacock-wash: #E3EBF5;
+  --marigold-wash: #F5E6DE;
+  --jamun-wash: #E3EBF5;
+  --success-wash: #E1EEE5;
+  --chilli-wash: #F6E3E0;
+  --on-accent: #FFFFFF; /* text on blue fills */
+  --on-ink: #F8F7F3;    /* text on ink fills */
+  --on-lime: #101418;   /* text on brass */
+  --driver-text: #A84C26; /* ember text that reads on ivory, bone and its wash */
+  --hero: #101418;      /* dark passes: welcome hero, today card, challenge */
+  --hero-text: #F4F4F1;
+  --hero-muted: #A8AFB8;
+  --flap: #101418;      /* split-flap letter tiles */
+
+  --shadow-1: none;
+  --shadow-2: 0 1px 2px rgba(13, 14, 16, 0.06);
+  --shadow-3: 0 12px 32px rgba(13, 14, 16, 0.12);
+  --shadow-sheet: 0 -8px 24px rgba(13, 14, 16, 0.12);
+  --glass: #F8F7F3;
+
+  --font-display: 'Geist', system-ui, -apple-system, sans-serif;
+  --font-body: 'Geist', system-ui, -apple-system, sans-serif;
+  --fs-body: calc(15px * var(--ts));
+  --fs-small: calc(13px * var(--ts));
+  --fs-h3: calc(18px * var(--ts));
+  --fs-h2: calc(26px * var(--ts));
+  --fs-h1: calc(34px * var(--ts));
+  --fs-hero: calc(56px * var(--ts));
+
+  --r-sheet: 20px;
+  --r-card: 16px;
+  --r-button: 999px;
+  --r-input: 12px;
+  --r-chip: 999px;
+  --tap: 44px;
+
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --focus: #1A66BD;     /* keyboard focus ring */
+  --ts: 1;              /* text scale, from the Text size setting */
+  color-scheme: light;
+}
+
+:root[data-text='large'] { --ts: 1.15; }
+:root[data-text='xl'] { --ts: 1.3; }
+
+
+/* dark theme: chosen in settings, or following the system (see src/lib/prefs.tsx) */
+:root[data-theme='dark'] {
+  --mist: #0B0E11;
+  --paper: #14181D;
+  --ink: #EEF0F2;
+  --ink-2: #1D232A;
+  --fog: #9AA2AC;
+  --marigold: #F07A52;
+  --peacock: #6AA8F0;
+  --jamun: #7FB0EC;
+  --success: #4CC77A;
+  --chilli: #F2786E;
+  --line: #232931;
+  --mist-2: #1B2026;
+  --mist-3: #232931;
+  --peacock-wash: #17263A;
+  --marigold-wash: #3A2219;
+  --jamun-wash: #17263A;
+  --success-wash: #132A1D;
+  --chilli-wash: #3A1A18;
+  --on-accent: #0B0E11;
+  --on-ink: #0B0E11;
+  --driver-text: #F59A78;
+  --hero: #171B21;
+  --hero-text: #EEF0F2;
+  --hero-muted: #9AA2AC;
+  --flap: #262C34;
+  --shadow-1: none;
+  --shadow-2: none;
+  --shadow-3: 0 12px 32px rgba(0, 0, 0, 0.5);
+  --shadow-sheet: 0 -8px 24px rgba(0, 0, 0, 0.5);
+  --glass: #14181D;
+  --focus: #7FB0EC;
+  color-scheme: dark;
+  --lime: #D9AA4E;
+  --lime-deep: #D9AA4E;
+  --on-lime: #101418;
+}
+
+/* higher contrast: darker secondary text, visible hairlines and field edges */
+:root[data-contrast='more'] {
+  --fog: #3A3B3E;
+  --line: #8A8A84;
+  --mist-2: #E5E4DE;
+  --peacock: #144F94;
+  --jamun: #144F94;
+  --success: #165C39;
+  --chilli: #A42A20;
+  --driver-text: #8A2C0C;
+}
+:root[data-theme='dark'][data-contrast='more'] {
+  --fog: #D6D6D2;
+  --line: #707070;
+  --mist-2: #232529;
+  --peacock: #A9BDFF;
+  --jamun: #A9BDFF;
+  --success: #8ADBAE;
+  --chilli: #FCA5A5;
+  --driver-text: #FFC2AD;
+}
