@@ -14,7 +14,7 @@ from ..auth import Actor, admin_actor, auth_rate_limit, current_actor, member_ac
 from ..db import get_db
 from ..engine import activation, pricing, referrals
 from ..engine import trips as T
-from ..models import Alert, CommunityPricing, Member, Profile, Rating, Referral, Report, Tenant, Trip, TripSeat, User
+from ..models import Alert, Broadcast, Car, CommunityPricing, Member, Profile, Rating, Referral, Report, Tenant, Trip, TripSeat, User
 from ..schemas import BroadcastIn, InviteIn, LocationIn, MessageIn, PricingIn, ProfileIn, RatingIn, ReadIn, ReportIn, SeatRequestIn, TrackIn, TripIn, UpiIn
 from .account import checked_mobile, email_verified, mobile_owner, verification_required
 
@@ -283,12 +283,37 @@ def report(body: ReportIn, user: User = Depends(rider_or_driver), db: Session = 
 
 # ---------- organiser ----------
 @router.post("/tenants/{tenant_id}/broadcast", status_code=201, summary="Organiser: send a notification to every member")
-def broadcast(tenant_id: int, body: BroadcastIn, db: Session = Depends(get_db), _: Actor | None = Depends(admin_actor)):
-    ids = list(db.scalars(select(User.id).where(User.tenant_id == tenant_id, User.role == "member")))
+def broadcast(tenant_id: int, body: BroadcastIn, db: Session = Depends(get_db), actor: Actor | None = Depends(admin_actor)):
+    ids = audience_ids(db, tenant_id, body.audience)
     for uid in ids:
         T.alert(db, uid, "broadcast", body.title, body.body)
+    db.add(Broadcast(tenant_id=tenant_id, title=body.title, body=body.body, audience=body.audience, sent=len(ids),
+                     sent_by=actor.user.id if actor else None))
     db.commit()
     return {"sent": len(ids)}
+
+
+def audience_ids(db: Session, tenant_id: int, audience: str) -> list[int]:
+    """Members of the community a broadcast goes to. Drivers: a car saved in the app."""
+    members = select(User.id).where(User.tenant_id == tenant_id, User.role == "member")
+    drivers = select(Car.user_id)
+    if audience == "drivers":
+        members = members.where(User.id.in_(drivers))
+    elif audience == "riders":
+        members = members.where(User.id.not_in(drivers))
+    elif audience == "new":   # hasn't shared a ride yet, either side
+        rode = select(TripSeat.rider_id).where(TripSeat.status.in_(("boarded", "dropped")))
+        drove = select(Trip.driver_id).where(Trip.status.in_(("started", "completed")))
+        members = members.where(User.id.not_in(rode), User.id.not_in(drove))
+    return list(db.scalars(members))
+
+
+@router.get("/tenants/{tenant_id}/broadcasts", summary="Organiser: notifications sent to members, newest first, and audience sizes")
+def broadcasts(tenant_id: int, db: Session = Depends(get_db), _: Actor | None = Depends(admin_actor)):
+    rows = db.scalars(select(Broadcast).where(Broadcast.tenant_id == tenant_id).order_by(Broadcast.id.desc()).limit(30))
+    return {"audiences": {a: len(audience_ids(db, tenant_id, a)) for a in ("all", "drivers", "riders", "new")},
+            "sent": [{"id": b.id, "title": b.title, "body": b.body, "audience": b.audience, "sent": b.sent,
+                      "created_at": b.created_at} for b in rows]}
 
 
 def _rates_out(r: pricing.Rates) -> dict:

@@ -52,19 +52,19 @@ FellaRide turns a community (a college, company, residential society, alumni net
 
 ### Organiser dashboard (`/dashboard`)
 
-- Community map with a **day slider**, showing members, co-rides, social ties and referrals over time.
-- This-week numbers with sparklines, plus the activation funnel (joined → first interaction → first ride → repeat → referral).
-- Today's nudges, hot commute corridors and the propensity model's learned weights.
-- Operator buttons: **Plan nudges · Match · Next day · Simulate**.
-- **Proof** page: the smart engine against random nudges on identical synthetic communities.
-- **Network expansion** page (`/dashboard/expansion`): why growth is slowing, where to grow (expansion areas on a map, with next week's forecast), neighbouring communities worth connecting, the actions the engine took and how they worked. Buttons: **Run engine** and, on synthetic communities, **Autopilot 5 days**.
-- **Member-app panel:**
-  - rides live, completed and cancelled
-  - riders carried, average rating and penalties
-  - open reports by category, each of which can be marked reviewed
-  - **send a notification to every member**
-  - how much of the engine's numbers came from real app rides
-- **Live:** numbers, funnel, map and model refresh every 20 seconds, so app activity shows up without a reload.
+The same app shell as the member app: a dark sidebar where each page is a station (Community · Run it · Grow it), bottom tabs on phones. The demo community is **Banyan Grove University**, with a neighbour, **Silverline Tech Park**. Both are made-up names and both are synthetic.
+
+- **Overview:** a "today" band (the day, shared rides, joined, match and repeat rates, rides per day for the last week) with the engine's buttons (**Plan nudges · Match · Next day · Simulate 7 days**), eight key numbers with their change over 7 days, **Needs your attention** (open reports, members who haven't ridden, routes short of drivers, low nudge response), the join funnel, busiest routes, word of mouth, and a **live activity feed**.
+- **Live map** (`/dashboard/map`): members on real streets (OpenStreetMap). Play or drag the day to watch the community grow; shared rides drawn as threads to the destination, invites as dashed lines, busy routes as halos. Filter drivers or riders, toggle layers, find a member by name, jump to a busy route. A list view shows the same data.
+- **Members** (`/dashboard/members`): everyone on the roster by stage, with search, filters (role, area), sorting and **CSV export**. A profile sheet shows the person's journey, commute, likelihood scores and best ride partners.
+- **Rides & safety** (`/dashboard/rides`): member-app rides, ratings and penalties; the reports queue (open / reviewed, by category); where rides come from (app vs engine).
+- **Announcements** (`/dashboard/announce`): send a notification to everyone, drivers, riders, or members who haven't shared a ride yet, with templates, a phone preview, and the history of what was sent.
+- **Pricing** (`/dashboard/pricing`): the community's cost-sharing rates.
+- **Engine** (`/dashboard/engine`): run the day, today's nudges and why, what predicts a yes, busiest routes.
+- **Expansion** (`/dashboard/expansion`): why growth is slowing, where to grow (with next week's forecast), neighbouring communities worth connecting, the actions the engine took and how they worked. **Run engine** and, on synthetic communities, **Autopilot 5 days**.
+- **Proof** (`/dashboard/proof`): the smart engine against random nudges on identical synthetic communities.
+- **Settings** (`/dashboard/settings`): rename the community, the join code with a sign-up link, invite message and WhatsApp share, appearance, sign out.
+- **Live:** numbers, map, reports and the activity feed refresh every 15 to 20 seconds, so app activity shows up without a reload.
 
 ### Activation engine (ML)
 
@@ -107,7 +107,7 @@ Every line between two blocks is labelled with what it carries:
 | Block | What it is | Built with |
 |---|---|---|
 | **Member app** | Phone-first PWA for riders and drivers | React 18, Vite, TypeScript, TanStack Query, React Router, Leaflet |
-| **Organiser dashboard** | Community map, metrics, engine controls, reports, broadcast | Same app, `/dashboard` (organisers only) |
+| **Organiser dashboard** | Overview, live map, members, rides & safety, announcements, pricing, engine, expansion | Same app, `/dashboard` (organisers only) |
 | **Service worker** | Shows phone notifications while the app is in the background | `public/sw.js` |
 | **OpenStreetMap services** | Map tiles, place search (Nominatim) and driving routes (OSRM), called from the browser | Public servers |
 | **Security layer** | CORS → JWT check → member or organiser check → community scoping → validation | FastAPI dependencies, PyJWT, bcrypt, pydantic |
@@ -250,7 +250,8 @@ backend/
   Dockerfile                      API image (listens on $PORT)
 frontend/
   src/member/        member app screens (Home, Offer, Find, Trip, Alerts, Community, Invite, You)
-  src/dashboard/     organiser dashboard, Proof, network expansion, member-app panel
+  src/dashboard/     organiser dashboard: shell (OrgLayout), Overview, Live map, Members, Rides & safety,
+                     Announcements, Pricing, Engine, Expansion, Proof, Settings
   src/components/    map (Leaflet), place field, shared UI
   public/sw.js       service worker for phone notifications
   Dockerfile         Vite build served by nginx (nginx.conf.template)
@@ -400,7 +401,7 @@ Tables are created automatically on startup. Sprint 3 only **added** tables, and
 | Rides (member app) | `POST /trips` · `GET /trips/search` · `GET /trips/{id}` · `POST /trips/{id}/request` · `/withdraw` · `/start` · `/end` · `/cancel` · `POST /trips/{id}/seats/{s}/approve` · `/reject` · `/board` · `/no-show` (rider not at pickup, from the planned time) |
 | Chat and updates | `GET /trips/{id}/messages` · `POST /trips/{id}/messages` · `POST /trips/{id}/notify` |
 | Trust | `POST /trips/{id}/ratings` · `POST /reports` · `GET /report-reasons` |
-| Organiser | `GET /tenants/{t}/trips-overview` · `POST /tenants/{t}/broadcast` · `POST /tenants/{t}/reports/{r}/review` |
+| Organiser | `GET /tenants/{t}/trips-overview` · `POST /tenants/{t}/broadcast` (audience: all, drivers, riders, new) · `GET /tenants/{t}/broadcasts` · `POST /tenants/{t}/reports/{r}/review` · `GET /tenants/{t}/activity` · `GET`/`PUT /tenants/{t}/pricing` · `PUT /tenants/{t}` (rename) |
 | Community | `POST /tenants` · `GET /tenants` · `GET /tenants/{t}` · `POST /tenants/{t}/members/import` · `POST /tenants/{t}/members/{m}/register` |
 | Intelligence | `GET /tenants/{t}/members` · `GET /tenants/{t}/members/{m}` · `GET /tenants/{t}/clusters` · `GET /tenants/{t}/members/{m}/recommendations` |
 | Engine rides | `POST /tenants/{t}/rides/offers` · `/requests` · `/requests/{q}/cancel` · `/match` · `GET /tenants/{t}/rides` · `POST …/offers/{o}/start` · `/finish` · `POST …/bookings/{b}/feedback` |

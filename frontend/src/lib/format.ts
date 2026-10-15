@@ -3,6 +3,8 @@ import type { FeatureName, MemberState, Role } from '../api/types';
 
 export const hhmm = (min: number) => `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
 export const pct = (fraction: number) => `${Math.round(fraction * 100)}%`;
+/** A community's name without the "(demo)" suffix, for screens that show a Demo tag next to it. */
+export const displayName = (name: string) => name.replace(/\s*\(demo\)$/i, '');
 export const firstName = (name: string) => name.split(' ')[0];
 
 // Same rules as the backend (schemas.Mobile, then account.clean_mobile + valid_mobile), so a bad number is flagged

@@ -4,12 +4,11 @@
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
 import {
   useAutopilot, useDemoNeighbour, useExpansion, useProposeCorridor, useRunExpansion,
   type Area, type CommunityLink, type ExpansionAction, type ExpansionReport,
 } from '../api/expansion';
-import { DemoTag, ErrorNote, Skeleton } from '../components/ui';
+import { ErrorNote, Skeleton } from '../components/ui';
 import { useAnnounce } from '../lib/announce';
 import { useSession } from '../lib/session';
 
@@ -170,15 +169,10 @@ export default function Expansion() {
   function say(m: string) { setNote(m); announce(m); }
 
   return (
-    <div className="dash">
-      <header className="dash-head">
-        <div style={{ display: 'grid', gap: 2 }}>
-          <h1 style={{ fontSize: 'var(--fs-h2)' }}>Network expansion</h1>
-          <span className="small muted">{session?.tenant.name}{r ? ` · day ${r.day}` : ''}</span>
-        </div>
-        <DemoTag show={synthetic} />
+    <>
+      <div className="page-actions">
+        <p className="small muted">Finds where the network can grow, acts through the normal nudges, then checks whether it worked{r ? ` · day ${r.day}` : ''}.</p>
         <span className="spacer" />
-        <Link to="/dashboard" className="btn btn-quiet btn-small">Dashboard</Link>
         {synthetic && (
           <button className="btn btn-quiet btn-small" disabled={busy}
             onClick={() => autopilot.mutate(5, { onSuccess: (x) => say(`Simulated 5 days on autopilot: ${x.actions_taken} actions taken. Now day ${x.current_day}.`) })}>
@@ -189,7 +183,7 @@ export default function Expansion() {
           onClick={() => run.mutate(3, { onSuccess: (x) => say(x.actions.length ? `Took ${x.actions.length} action${x.actions.length === 1 ? '' : 's'}${x.evaluated ? `, judged ${x.evaluated} earlier` : ''}.` : 'Nothing new to do today: every area already has an action running.') })}>
           {run.isPending ? 'Running…' : 'Run engine'}
         </button>
-      </header>
+      </div>
 
       {note && <p className="note note-ok" role="status">{note}</p>}
       <ErrorNote error={q.error || run.error || autopilot.error} />
@@ -289,6 +283,6 @@ export default function Expansion() {
           <p className="small muted" style={{ maxWidth: 820 }}>{r.privacy}</p>
         </>
       )}
-    </div>
+    </>
   );
 }

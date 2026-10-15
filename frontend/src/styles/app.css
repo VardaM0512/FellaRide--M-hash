@@ -422,20 +422,7 @@ h3.section-head { font-size: calc(17px * var(--ts)); }
 .search { position: sticky; top: 0; background: var(--mist); padding: 4px 0 8px; z-index: 2; }
 .search input { padding-left: 44px !important; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%235E636E' stroke-width='2.4' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M20 20l-3.5-3.5'/%3E%3C/svg%3E") !important; background-repeat: no-repeat !important; background-position: 14px center !important; }
 
-/* ---------- dashboard (admin, desktop first but responsive) ---------- */
-.dash { max-width: 1440px; margin: 0 auto; padding: calc(20px + env(safe-area-inset-top)) 24px 48px; display: grid; gap: 20px; }
-.dash > * { animation: rise-in 460ms var(--ease-out) both; }
-.dash > *:nth-child(2) { animation-delay: 60ms; }
-.dash > *:nth-child(3) { animation-delay: 120ms; }
-.dash > *:nth-child(4) { animation-delay: 180ms; }
-.dash > *:nth-child(n + 5) { animation-delay: 240ms; }
-.dash-head {
-  display: flex; align-items: center; gap: 12px 16px; flex-wrap: wrap; position: sticky; top: 0; z-index: 10;
-  padding: 12px 16px; margin: 0 -16px; border-radius: 0 0 20px 20px;
-  background: var(--mist); border-bottom: 1px solid var(--line);
-}
-.dash-head .spacer { flex: 1; }
-.dash-grid { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 20px; }
+/* ---------- dashboard panels (the organiser shell and pages are in org.css) ---------- */
 .panel {
   background: var(--paper); border-radius: var(--r-card); padding: 20px; display: grid; gap: 14px; align-content: start; min-width: 0;
   box-shadow: var(--shadow-1); border: 1px solid var(--line); transition: box-shadow 200ms ease;
@@ -443,38 +430,13 @@ h3.section-head { font-size: calc(17px * var(--ts)); }
 .panel:hover { box-shadow: var(--shadow-2); }
 .panel h2 { font-size: var(--fs-h3); }
 .dash-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
-@media (max-width: 1100px) {
-  .dash-grid { grid-template-columns: 1fr; }
-  .dash-row { grid-template-columns: 1fr 1fr; }
-}
+@media (max-width: 1100px) { .dash-row { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 720px) {
-  .dash { padding: calc(8px + env(safe-area-inset-top)) 12px 32px; gap: 14px; }
-  .dash-head { margin: 0 -12px; padding: 10px 12px; }
   .dash-row { grid-template-columns: 1fr; }
-  .dash-head h1 { font-size: calc(22px * var(--ts)) !important; }
   .panel { padding: 14px; }
 }
 .join-code { font-family: var(--font-display); font-weight: 700; letter-spacing: 0.08em; font-size: calc(20px * var(--ts)); }
 
-.map-panel { padding: 0; overflow: hidden; position: relative; align-self: start; }
-.map-svg { display: block; width: 100%; height: auto; background: var(--paper); touch-action: manipulation; }
-.map-overlay { position: absolute; z-index: 2; left: 16px; top: 14px; display: grid; gap: 2px; pointer-events: none; }
-.map-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 10px 16px; font-size: var(--fs-small); color: var(--fog); border-top: 1px solid var(--line); align-items: center; }
-.map-legend span { display: inline-flex; align-items: center; gap: 6px; }
-.slider-bar { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-top: 1px solid var(--line); flex-wrap: wrap; }
-.slider-bar input[type='range'] { flex: 1 1 160px; min-width: 120px; accent-color: var(--ink); height: 44px; cursor: pointer; }
-.tooltip {
-  position: absolute; pointer-events: none; background: var(--ink); color: var(--on-ink); padding: 6px 10px; border-radius: 8px;
-  font-size: var(--fs-small); white-space: nowrap; transform: translate(-50%, -130%); z-index: 3; box-shadow: var(--shadow-2);
-  animation: fade-in 120ms ease both;
-}
-@media (max-width: 720px) {
-  .map-legend { font-size: calc(12px * var(--ts)); gap: 4px 10px; }
-  .map-overlay span.num { font-size: calc(24px * var(--ts)) !important; }
-}
-
-.stat { display: grid; grid-template-columns: 1fr 96px; gap: 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); }
-.stat:last-child { border-bottom: 0; }
 .funnel { display: grid; gap: 6px; }
 .funnel-step { display: grid; grid-template-columns: 120px 1fr 44px; gap: 10px; align-items: center; font-size: var(--fs-small); }
 .funnel-bar { height: 20px; background: var(--mist-2); border-radius: 6px; overflow: hidden; }

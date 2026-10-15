@@ -10,10 +10,12 @@ const KEY = 'fellaride.session';
 interface SessionCtx {
   session: Session | null;
   signIn: (s: Session) => void;
+  /** Same person, fresher details (e.g. the community was renamed): keeps everything already loaded. */
+  update: (s: Session) => void;
   signOut: () => void;
 }
 
-const Ctx = createContext<SessionCtx>({ session: null, signIn: () => {}, signOut: () => {} });
+const Ctx = createContext<SessionCtx>({ session: null, signIn: () => {}, update: () => {}, signOut: () => {} });
 
 function load(): Session | null {
   try {
@@ -44,6 +46,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     try { localStorage.setItem(KEY, JSON.stringify(s)); } catch { /* storage blocked: stay signed in for this tab */ }
   }, [qc]);
 
+  const update = useCallback((s: Session) => {
+    setSession(s);
+    try { localStorage.setItem(KEY, JSON.stringify(s)); } catch { /* kept for this tab */ }
+  }, []);
+
   const signOut = useCallback(() => {
     setAuthToken(null);
     qc.clear();
@@ -57,7 +64,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('fellaride:signed-out', onExpired);
   }, [signOut]);
 
-  return <Ctx.Provider value={{ session, signIn, signOut }}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={{ session, signIn, update, signOut }}>{children}</Ctx.Provider>;
 }
 
 export const useSession = () => useContext(Ctx);

@@ -530,6 +530,20 @@ class Alert(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
+class Broadcast(Base):
+    """A notification the organiser sent to members (each person gets an Alert); kept so the dashboard can list them."""
+
+    __tablename__ = "broadcasts"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    title: Mapped[str] = mapped_column(String(160))
+    body: Mapped[str] = mapped_column(String(400), default="")
+    audience: Mapped[str] = mapped_column(String(12), default="all")   # all | drivers | riders | new
+    sent: Mapped[int] = mapped_column(Integer, default=0)
+    sent_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
 # ---------- Community board: posts, reactions and comments ----------
 # Authored by a login (user). Seeded demo posts come from synthetic members who have no login, so user_id is
 # optional and the author's name is kept with the post.

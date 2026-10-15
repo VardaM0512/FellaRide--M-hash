@@ -7,6 +7,7 @@ No real people: names are generic first names with an initial, emails are @examp
 import math
 import random
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..engine import daycycle
@@ -33,8 +34,14 @@ FIRST = ["Aarav", "Diya", "Ishaan", "Ananya", "Kabir", "Meera", "Rohan", "Saanvi
          "Asha", "Rhea", "Farhan", "Gauri", "Jay"]
 LAST = "ABCDEGHJKLMNPRSTV"
 
+# The demo communities' names: made up, so no real place or institution is implied. "(demo)" keeps them labelled
+# as synthetic wherever the name is shown; the apps hide the suffix next to their own Demo tag.
+DEMO_NAME = "Banyan Grove University (demo)"
+NEIGHBOUR_NAME = "Silverline Tech Park (demo)"
+LEGACY_NAMES = {"Synthetic University (demo)": DEMO_NAME, "Synthetic Tech Park (demo)": NEIGHBOUR_NAME}
 
-def create_synthetic_tenant(db: Session, name: str = "Synthetic University (demo)", seed_active: int = 15,
+
+def create_synthetic_tenant(db: Session, name: str = DEMO_NAME, seed_active: int = 15,
                             seed: int = 7, center: tuple[float, float] = CENTER, kind: str = "university") -> Tenant:
     rng = random.Random(seed)
     tenant = Tenant(name=name, kind=kind, center_lat=center[0], center_lon=center[1], is_synthetic=True)
@@ -125,7 +132,13 @@ def create_synthetic_tenant(db: Session, name: str = "Synthetic University (demo
     return tenant
 
 
-NEIGHBOUR_NAME = "Synthetic Tech Park (demo)"
+def rename_legacy_demos(db: Session) -> int:
+    """Databases seeded before the demo communities had names: give them the current ones."""
+    n = 0
+    for t in db.scalars(select(Tenant).where(Tenant.is_synthetic.is_(True), Tenant.name.in_(list(LEGACY_NAMES)))):
+        t.name = LEGACY_NAMES[t.name]
+        n += 1
+    return n
 
 
 def create_neighbour_tenant(db: Session, of: Tenant) -> Tenant:

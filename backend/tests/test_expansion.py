@@ -1,12 +1,14 @@
 """Network Expansion Engine: growth areas with forecasts, diagnosis, cross-community corridors, autonomous actions
 that are measured and learned from, privacy (k-anonymity for non-members) and organiser-only access."""
+from app.sim.synthetic import DEMO_NAME, NEIGHBOUR_NAME
+
 from .conftest import API
 from .test_simulation import demo_admin
 from .test_trips import signup
 
 
 def demo_id(client):
-    return next(t["id"] for t in client.get(f"{API}/tenants").json() if t["name"] == "Synthetic University (demo)")
+    return next(t["id"] for t in client.get(f"{API}/tenants").json() if t["name"] == DEMO_NAME)
 
 
 def test_report_finds_areas_diagnoses_and_links_communities(client):
@@ -24,7 +26,7 @@ def test_report_finds_areas_diagnoses_and_links_communities(client):
         assert x["potential"] is None or x["potential"] >= 3
     assert "only for people who joined" in rep["privacy"]
     # the neighbouring demo community overlaps: shared corridors, other side always counted in 3s or more
-    link = next(c for c in rep["cross_community"] if c["community"] == "Synthetic Tech Park (demo)")
+    link = next(c for c in rep["cross_community"] if c["community"] == NEIGHBOUR_NAME)
     assert link["shared_corridors"] and all(c["members_there"] >= 3 for c in link["shared_corridors"])
     assert len({c["id"] for c in link["shared_corridors"]}) == len(link["shared_corridors"])
     assert all(c["heading"] in ("east", "north-east", "north", "north-west", "west", "south-west", "south", "south-east")

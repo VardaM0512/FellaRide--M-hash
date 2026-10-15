@@ -1,14 +1,15 @@
 """Metrics, funnel, growth graph, model weights, day clock and synthetic simulation."""
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..engine import daycycle, metrics, scorer
 from ..engine.context import FEATURES
-from ..models import Tenant
+from ..models import Event, Member, Tenant
 from ..schemas import CompareIn, SimulateIn
 from ..sim.behaviour import SimulationError, simulate
-from ..sim.synthetic import create_synthetic_tenant
+from ..sim.synthetic import DEMO_NAME, create_synthetic_tenant
 from ..auth import Actor, admin_actor, require_admin_global
 from .deps import get_tenant
 
@@ -33,6 +34,26 @@ def timeseries(tenant: Tenant = Depends(get_tenant), db: Session = Depends(get_d
 @router.get("/tenants/{tenant_id}/graph", summary="Community growth graph (members, co-rides, social ties, referrals)")
 def graph(tenant: Tenant = Depends(get_tenant), db: Session = Depends(get_db), _: Actor | None = Depends(admin_actor), include_discovered: bool = False):
     return metrics.graph(db, tenant, include_discovered)
+
+
+# What the organiser's activity feed shows: milestones and outcomes, not the engine's bookkeeping (nudges sent,
+# offers and requests opened, matches) which would bury them.
+FEED_TYPES = ("member_registered", "first_ride", "repeat_ride", "first_referral_converted", "referral_joined",
+              "ride_completed", "ride_cancelled", "trip_posted", "trip_unfilled", "ride_rated", "nudge_responded",
+              "expansion_action", "corridor_proposed")
+
+
+@router.get("/tenants/{tenant_id}/activity", summary="Organiser: what just happened in the community, newest first")
+def activity(tenant: Tenant = Depends(get_tenant), db: Session = Depends(get_db), _: Actor | None = Depends(admin_actor),
+             limit: int = Query(40, ge=1, le=200)):
+    rows = db.execute(select(Event, Member.name).outerjoin(Member, Member.id == Event.member_id)
+                      .where(Event.tenant_id == tenant.id, Event.type.in_(FEED_TYPES))
+                      .order_by(Event.id.desc()).limit(limit)).all()
+    keep = ("via", "rating", "kind", "area", "how")
+    return [{"id": e.id, "day": e.day, "type": e.type, "at": e.created_at,
+             "member": {"id": e.member_id, "name": name} if e.member_id else None,
+             "source": (e.payload or {}).get("source", "engine"),
+             "detail": {k: v for k, v in (e.payload or {}).items() if k in keep}} for e, name in rows]
 
 
 @router.get("/tenants/{tenant_id}/model", summary="Current propensity-model weights (learned online)")
@@ -67,7 +88,7 @@ def run_simulation(body: SimulateIn, tenant: Tenant = Depends(get_tenant), db: S
 def compare(body: CompareIn, db: Session = Depends(get_db)):
     out = {}
     for strategy in ("smart", "random"):
-        t = create_synthetic_tenant(db, name=f"Synthetic University ({strategy} run)", seed_active=body.seed_active)
+        t = create_synthetic_tenant(db, name=f"{DEMO_NAME.removesuffix(' (demo)')} ({strategy} run)", seed_active=body.seed_active)
         db.commit()
         simulate(db, t, body.days, strategy=strategy, budget=body.budget)
         out[strategy] = {"tenant_id": t.id, "kpis": metrics.kpis(db, t), "funnel": metrics.funnel(db, t),

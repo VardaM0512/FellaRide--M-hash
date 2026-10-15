@@ -27,6 +27,10 @@ class AdminIn(BaseModel):
     password: str = Password
 
 
+class CommunityUpdate(BaseModel):
+    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=2, max_length=120)]
+
+
 class TenantCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     kind: Literal["university", "corporate", "residential", "alumni", "professional"] = "university"
@@ -251,6 +255,8 @@ class InviteIn(BaseModel):
 class BroadcastIn(BaseModel):
     title: str = Field(min_length=1, max_length=120)
     body: str = Field("", max_length=400)
+    audience: Literal["all", "drivers", "riders", "new"] = Field(
+        "all", description="everyone; members with a car saved; members without one; or members who haven't shared a ride yet")
 
 
 class PricingIn(BaseModel):
