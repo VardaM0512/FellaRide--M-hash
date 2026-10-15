@@ -508,6 +508,23 @@ Every team member is expected to be able to explain, modify and debug every part
 - **Communities are separate:** a rider only sees rides from their own community. Someone who signs up without a join code (and no `FELLARIDE_DEFAULT_JOIN_CODE`) joins the open community and won't see the demo community's rides.
 - **The free hosting sleeps:** Render free services sleep after 15 minutes idle (the first visit takes about a minute), and Supabase free pauses after 7 days idle.
 
+### Security and deployment — known and accepted
+
+Deliberate trade-offs for a hackathon demo on free hosting. They are documented here so they're treated as known limitations, not defects:
+
+- **Cost-sharing is trust-based.** The trip distance (`route_km` / `route_min`) and route come from the driver's device and aren't re-verified on the server. Contributions are suggestions only, capped so the riders together never pay more than the trip's stated running cost, and money changes hands outside the app (UPI or cash). There is no payment integration or server-side distance audit.
+- **Sign-up tells you whether an email or mobile is already registered** (a clear "already exists" message) so people can recover an account. Sign-in and forgot-password are deliberately uniform and reveal nothing.
+- **Driver name, gender and approximate area are visible to signed-in members before approval**, so riders can choose a ride. Exact home location, number plate and phone number are shown only to the driver and approved riders.
+- **Email verification needs a working mail server.** Sign-up emails a 6-digit code and booking waits for it only when SMTP is configured. On hosting that blocks SMTP (Render free), the code is written to the server log and verification is not enforced, so accounts work immediately.
+- **Password-reset and verification codes are written to the server log when SMTP is off** (local and free-tier only). Guesses are limited to 5 tries per code.
+- **Sign-out is on this device only.** Login is a 12-hour stateless token kept in the browser's local storage; signing out clears it locally, but a copied token stays valid until it expires. Changing the password or deleting the account does end other sessions.
+- **Rate limiting is best-effort.** The sign-in / sign-up limiter is in-memory per process, resets on restart, and is keyed on the address the server sees (which can be shared behind a proxy). It slows abuse; it is not a hardened, shared limiter.
+- **Free-tier database limits concurrency.** The connection pool is kept small to stay under Supabase's free cap, so many heavy requests at once can queue. The welcome and community figures are cached for this reason.
+- **Public impact figures include synthetic demo data.** Network-wide totals count seeded synthetic communities (every such record carries `synthetic: true`, and the impact response carries `includes_demo`), so headline numbers are not all real rides.
+- **Passwords are limited to 72 bytes** (a bcrypt constraint), so a very long non-Latin passphrase may be rejected.
+- **The interactive API docs (`/docs`, `/openapi.json`) are public**, and the community list exposes only names and destinations.
+- **No extra browser security headers** (CSP, X-Frame-Options, HSTS) are set on the static web app; it relies on React's output escaping and the server's input validation.
+
 ## Sprint status
 
 | Sprint | Scope | Status |
