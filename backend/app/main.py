@@ -8,6 +8,7 @@ import threading
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -83,6 +84,30 @@ app = FastAPI(
 )
 app.add_middleware(CORSMiddleware, allow_origins=[o.strip() for o in get_settings().cors_origins.split(",") if o.strip()],
                    allow_methods=["*"], allow_headers=["*"])
+
+
+# What to tell people when a field fails its format check, instead of the raw regex.
+FORMAT_HINTS = {
+    "name": "Use letters and spaces only, without < > { } [ ] \\ /.",
+    "mobile": "Enter a valid mobile number, e.g. +91 98765 43210.",
+    "email": "Enter a valid email address, e.g. name@example.com.",
+}
+
+
+@app.exception_handler(RequestValidationError)
+async def invalid_input(_: Request, exc: RequestValidationError):
+    # Same {"detail": [{loc, msg, type}]} shape as FastAPI's default, but in plain words and without echoing
+    # the submitted input or our validation patterns back.
+    detail = []
+    for e in exc.errors():
+        field = str(e["loc"][-1]) if e.get("loc") else ""
+        msg = e.get("msg", "Invalid value.")
+        if e.get("type") == "string_pattern_mismatch":
+            msg = FORMAT_HINTS.get(field, "Contains characters that aren't allowed.")
+        elif e.get("type") == "literal_error":
+            msg = "Choose one of the options."
+        detail.append({"loc": list(e.get("loc", [])), "msg": msg, "type": e.get("type")})
+    return JSONResponse(status_code=422, content={"detail": detail})
 
 
 @app.exception_handler(Exception)

@@ -46,6 +46,42 @@ def test_signup_without_code_and_login_by_mobile(client):
     assert bad.status_code == 404
 
 
+def test_profile_update_valid_and_invalid_input(client):
+    _, h, _ = signup(client, "Ravi K.", gender="male")
+    _, _, os_ = signup(client, "Asha P.")
+    put = lambda body, hh=h: client.put(f"{API}/me/profile", headers=hh, json=body)
+
+    # a valid update is saved, trimmed and normalised
+    ok = put({"name": "  Ravi Kumar ", "gender": "male", "mobile": "98765 43210"})
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["name"] == "Ravi Kumar" and ok.json()["mobile"] == "+919876543210"
+
+    # bad input is a 422 with a sentence a person can act on, never our regex or their input echoed back
+    cases = {
+        "blank name": ({"name": "   ", "gender": "male", "mobile": "98765 43210"}, "name", "at least 2"),
+        "1-letter name after trimming": ({"name": " A ", "gender": "male", "mobile": "98765 43210"}, "name", "at least 2"),
+        "markup in name": ({"name": "Ravi/<b>", "gender": "male", "mobile": "98765 43210"}, "name", "letters and spaces"),
+        "brackets in mobile": ({"name": "Ravi", "gender": "male", "mobile": "(987) 654-3210"}, "mobile", "valid mobile"),
+        "unknown gender": ({"name": "Ravi", "gender": "robot", "mobile": "98765 43210"}, "gender", "one of the options"),
+    }
+    for label, (body, field, words) in cases.items():
+        r = put(body)
+        assert r.status_code == 422, label
+        [err] = r.json()["detail"]
+        assert err["loc"][-1] == field and words in err["msg"], (label, err)
+        assert "input" not in err and "pattern" not in err["msg"], (label, err)
+    assert put({"name": "Ravi", "gender": "male", "mobile": "+91 12345 67890"}).json()["detail"].startswith("Enter a valid mobile")
+    assert put({"name": "Ravi", "gender": "male"}).status_code == 422
+
+    # someone else's number is refused, and nothing above changed the saved profile
+    assert put({"name": "Ravi", "gender": "male", "mobile": os_["profile"]["mobile"]}).status_code == 409
+    me = client.get(f"{API}/auth/me", headers=h).json()
+    assert me["profile"]["name"] == "Ravi Kumar" and me["profile"]["mobile"] == "+919876543210"
+
+    # no token, no update
+    assert client.put(f"{API}/me/profile", json={"name": "Ravi", "gender": "male", "mobile": "98765 43210"}).status_code == 401
+
+
 def test_full_trip(client):
     d, dh, _ = signup(client, "Asha D.")
     r1, h1, _ = signup(client, "Rohan R.", "male")

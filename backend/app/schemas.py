@@ -1,8 +1,8 @@
 """Request bodies. Every field is bounded so bad input is rejected with a clear 422."""
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 
 Lat = Field(ge=-90, le=90)
 Lon = Field(ge=-180, le=180)
@@ -17,11 +17,12 @@ class DestinationIn(BaseModel):
 
 Email = Field(min_length=5, max_length=200, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 Password = Field(min_length=8, max_length=72, description="8 to 72 characters")
-PersonName = Field(min_length=2, max_length=80, pattern=r"^[^<>{}\[\]\\/]+$")
+# Trimmed before the length check, so "   " or " A " can't slip through and be saved as a blank or 1-letter name.
+PersonName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=2, max_length=80, pattern=r"^[^<>{}\[\]\\/]+$")]
 
 
 class AdminIn(BaseModel):
-    name: str = PersonName
+    name: PersonName
     email: str = Email
     password: str = Password
 
@@ -122,7 +123,7 @@ class DemoLoginIn(BaseModel):
 class RegisterIn(BaseModel):
     """Join a community with its join code and set up your commute in one step."""
     join_code: str = Field(min_length=4, max_length=16, pattern=r"^[A-Za-z0-9]+$")
-    name: str = PersonName
+    name: PersonName
     email: str = Email
     password: str = Password
     area: str = Field("", max_length=80, pattern=r"^[^<>{}]*$")
@@ -152,7 +153,7 @@ Place = Field(min_length=1, max_length=160, pattern=r"^[^<>{}]+$")
 
 
 class SignupIn(BaseModel):
-    name: str = PersonName
+    name: PersonName
     gender: Gender
     email: str = Email
     mobile: str = Mobile
@@ -166,7 +167,7 @@ class VerifyEmailIn(BaseModel):
 
 
 class ProfileIn(BaseModel):
-    name: str = PersonName
+    name: PersonName
     gender: Gender
     mobile: str = Mobile
 
@@ -243,7 +244,7 @@ class ReportIn(BaseModel):
 
 
 class InviteIn(BaseModel):
-    name: str = PersonName
+    name: PersonName
     email: str = Email
 
 
