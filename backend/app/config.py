@@ -56,6 +56,9 @@ class Settings(BaseSettings):
     smtp_from: str = ""                     # defaults to smtp_user
     # Where the web app lives, for links in emails (no trailing slash).
     app_url: str = "http://localhost:5173"
+    # Postgres connections per API process (Supabase's pooler allows 15 in total across everything)
+    db_pool_size: int = 3
+    db_max_overflow: int = 2
     # Member app -> activation engine bridge: raise its errors instead of logging them (tests turn this on).
     activation_strict: bool = False
 

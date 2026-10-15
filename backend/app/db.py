@@ -12,8 +12,14 @@ class Base(DeclarativeBase):
 
 
 def make_engine(url: str):
-    kwargs = {"connect_args": {"check_same_thread": False}} if url.startswith("sqlite") else {"pool_pre_ping": True}
-    return create_engine(url, **kwargs)
+    if url.startswith("sqlite"):
+        return create_engine(url, connect_args={"check_same_thread": False})
+    # Supabase's pooler allows only 15 connections in total, shared by the live API, a new deploy starting up and
+    # anyone running the API locally. SQLAlchemy's default (5 + 10 overflow = 15 per process) can use all of them,
+    # and a deploy then fails at startup with "max clients reached". Keep each process small and close idle ones.
+    s = get_settings()
+    return create_engine(url, pool_pre_ping=True, pool_size=s.db_pool_size, max_overflow=s.db_max_overflow,
+                         pool_recycle=300, pool_timeout=30)
 
 
 engine = make_engine(get_settings().database_url)
