@@ -519,7 +519,7 @@ Every team member is expected to be able to explain, modify and debug every part
 - **Maps, search and routes use the public OpenStreetMap servers**, which are rate-limited and meant for light use. Self-host them or use a paid provider in production. If routing is unreachable, a straight line is used.
 - **The boarding code confirms the right car, not identity.** IDs aren't verified.
 - **The open community has no organiser.** Its reports can be reviewed with the operator key (`X-Admin-Key`).
-- **The engine day follows the calendar in real communities** (one day per local day in India time, caught up on the next request; `FELLARIDE_AUTO_ADVANCE_DAYS`). Synthetic communities only move with **Next day** or **Simulate**.
+- **The engine day follows the calendar in real communities** (one day per local day in India time, caught up on the next request; `FELLARIDE_AUTO_ADVANCE_DAYS`). Synthetic communities only move with **Next day** or **Simulate**; the dashboard labels this ("Simulated timeline") and `GET /tenants/{t}` reports it as `clock: "manual"` (`"calendar"` for real communities).
 - **Any ride action answers a recent nudge**, whatever the nudge suggested, and the model learns for the nudge's role.
 - **An invited person is assumed to commute like the inviter** until their own first ride.
 - An approved seat that the rider later withdraws doesn't count as matched.

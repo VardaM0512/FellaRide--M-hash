@@ -5,7 +5,7 @@ import { DemoTag, ErrorNote, Skeleton } from '../components/ui';
 import { useSession } from '../lib/session';
 import CommunityMap from './CommunityMap';
 import MemberAppPanel from './MemberAppPanel';
-import { CorridorsPanel, FunnelPanel, MemberSheet, ModelPanel, Numbers, NudgesPanel, OperatorPanel } from './Panels';
+import { ClockTag, CorridorsPanel, FunnelPanel, MemberSheet, ModelPanel, Numbers, NudgesPanel, OperatorPanel } from './Panels';
 
 export default function Dashboard() {
   const community = useCommunity();
@@ -26,6 +26,7 @@ export default function Dashboard() {
         <h1 style={{ fontSize: 'var(--fs-h2)' }}>{c ? c.name : <Skeleton w={260} h={30} />}</h1>
         {c && <DemoTag show={c.synthetic} />}
         {c && <span className="muted">Day {c.current_day} of the community</span>}
+        {c && <ClockTag clock={c.clock} />}
         <span className="spacer" />
         {session?.tenant.join_code && (
           <span className="chip" style={{ padding: '6px 12px' }}>Join code <span className="join-code" style={{ fontSize: 16 }}>{session.tenant.join_code}</span></span>
@@ -47,7 +48,7 @@ export default function Dashboard() {
 
       <MemberAppPanel />
 
-      <OperatorPanel />
+      <OperatorPanel clock={c?.clock} />
 
       <div className="dash-row">
         {c ? <NudgesPanel day={c.current_day} /> : <Skeleton h={200} />}

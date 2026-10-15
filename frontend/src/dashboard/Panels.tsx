@@ -3,7 +3,7 @@ import {
   useCloseDay, useClusters, useFunnel, useInterventions, useMatchRides, useMember, useMemberMap, useMemberProfiles,
   useMetrics, useModel, usePlanNudges, useSimulate, useTimeseries,
 } from '../api/hooks';
-import type { DailySnapshot, FeatureName, Kpis, Role } from '../api/types';
+import type { Community, DailySnapshot, FeatureName, Kpis, Role } from '../api/types';
 import { ErrorNote, Glyph, Sheet, Skeleton, Sparkline } from '../components/ui';
 import { useAnnounce } from '../lib/announce';
 import { FEATURE_LABEL, FUNNEL_LABEL, ROLE_LABEL, STATE_LABEL, pct } from '../lib/format';
@@ -180,8 +180,19 @@ export function ModelPanel() {
   );
 }
 
+// ---------- the community's clock ----------
+type Clock = Community['clock'];
+
+/** Says how the day moves, so a simulated timeline that only moves on Next day / Simulate doesn't look frozen. */
+export function ClockTag({ clock }: { clock: Clock }) {
+  if (!clock) return null;
+  return clock === 'manual'
+    ? <span className="chip" title="This community's day moves only when you click Next day or Simulate, not with the calendar.">Simulated timeline · moves on Next day / Simulate</span>
+    : <span className="chip" title="One community day per calendar day (India time).">Follows the calendar</span>;
+}
+
 // ---------- operator panel (demo controls) ----------
-export function OperatorPanel() {
+export function OperatorPanel({ clock }: { clock?: Clock }) {
   const plan = usePlanNudges();
   const match = useMatchRides();
   const close = useCloseDay();
@@ -196,6 +207,8 @@ export function OperatorPanel() {
   return (
     <section className="panel" aria-labelledby="op-h">
       <h2 id="op-h">Run the demo</h2>
+      {clock === 'manual' && <p className="small muted">This timeline is simulated: nothing moves on its own. Next day closes the current day; Simulate replays more days through the engine.</p>}
+      {clock === 'calendar' && <p className="small muted">The day moves with the calendar on its own. Next day closes today early and moves ahead of the calendar, which then waits until the date catches up.</p>}
       <div className="btn-row">
         <button className="btn btn-primary" disabled={busy} onClick={() => run(async () => { const r = await plan.mutateAsync(14); return `Planned ${r.count} nudges for day ${r.day}.`; })}>Plan today’s nudges</button>
         <button className="btn btn-ride" disabled={busy} onClick={() => run(async () => { const r = await match.mutateAsync(); return r.matched ? `Matched ${r.matched} rider${r.matched === 1 ? '' : 's'} to drivers.` : 'Nothing new to match. Riders are matched automatically as soon as seats are offered.'; })}>Match rides</button>

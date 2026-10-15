@@ -61,6 +61,14 @@ def test_day_clock_follows_the_calendar(client, community):
         assert db.get(Tenant, community["id"]).current_day == 3
 
 
+def test_real_community_reports_a_calendar_clock(client, community, monkeypatch):
+    from app.config import get_settings
+    assert client.get(f"{API}/tenants/{community['id']}").json()["clock"] == "calendar"
+    monkeypatch.setattr(get_settings(), "auto_advance_days", False)
+    assert client.get(f"{API}/tenants/{community['id']}").json()["clock"] == "manual"
+
+
+
 def test_trainer_reads_only_real_answered_nudges():
     logs = load_real_logs()
     with SessionLocal() as db:

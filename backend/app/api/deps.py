@@ -52,5 +52,5 @@ def member_out(m: Member, dest_name: str | None = None, precise: bool = True) ->
 
 def tenant_out(t: Tenant) -> dict:
     return {"id": t.id, "name": t.name, "kind": t.kind, "center": {"lat": t.center_lat, "lon": t.center_lon},
-            "current_day": t.current_day, "synthetic": t.is_synthetic,
+            "current_day": t.current_day, "synthetic": t.is_synthetic, "clock": daycycle.clock(t),
             "destinations": [{"id": d.id, "name": d.name, "lat": d.lat, "lon": d.lon} for d in t.destinations]}

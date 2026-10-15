@@ -12,6 +12,8 @@ export interface Community {
   center: { lat: number; lon: number };
   current_day: number;
   synthetic: boolean;
+  /** How the day moves: with the calendar, or only when the organiser clicks Next day / Simulate. */
+  clock?: 'calendar' | 'manual';
   destinations: Destination[];
 }
 

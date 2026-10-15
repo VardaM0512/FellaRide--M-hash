@@ -26,11 +26,17 @@ def close_day(db: Session, tenant: Tenant) -> dict:
     return snap
 
 
+def clock(tenant: Tenant) -> str:
+    """How the community's day moves: "calendar" (one engine day per local day, see catch_up) or "manual" (only
+    when the organiser closes a day or runs the simulator: synthetic communities, or auto-advance turned off)."""
+    return "manual" if tenant.is_synthetic or not get_settings().auto_advance_days else "calendar"
+
+
 def catch_up(db: Session, tenant: Tenant) -> int:
     """Real communities: one engine day per local calendar day since the community was created. Closes any days
     that have passed. Synthetic communities keep the simulator's clock; an organiser who closed days by hand
     stays ahead until the calendar catches up."""
-    if tenant.is_synthetic or not get_settings().auto_advance_days:
+    if clock(tenant) == "manual":
         return 0
     created = tenant.created_at if tenant.created_at.tzinfo else tenant.created_at.replace(tzinfo=timezone.utc)
     target = (datetime.now(LOCAL_TZ).date() - created.astimezone(LOCAL_TZ).date()).days
