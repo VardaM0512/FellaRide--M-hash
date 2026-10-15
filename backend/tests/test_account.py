@@ -1,4 +1,4 @@
-"""Account lifecycle: forgot and reset password, deleting your account, and several drivers on one route."""
+"""Account lifecycle: email verification, deleting your account, and several drivers on one route."""
 import re
 
 from app import mailer
@@ -17,72 +17,6 @@ def _capture_mail(monkeypatch, kind="reset"):
         return True
     monkeypatch.setattr(mailer, "send", send)
     return sent
-
-
-def test_forgot_and_reset_password(client, monkeypatch):
-    sent = _capture_mail(monkeypatch)
-    uid, h, s = signup(client, "Reset Me")
-    email = s["user"]["email"]
-
-    # the same answer for a real and an unknown email; only the real one gets a link
-    a = client.post(f"{API}/auth/forgot-password", json={"email": email})
-    b = client.post(f"{API}/auth/forgot-password", json={"email": "nobody-here@example.org"})
-    assert a.status_code == b.status_code == 200 and a.json() == b.json()
-    assert len(sent) == 1 and sent[0][0] == email
-    token = re.search(r"reset-password\?token=([\w-]+)", sent[0][2]).group(1)
-
-    bad = client.post(f"{API}/auth/reset-password", json={"token": "x" * 40, "password": "brand-new-pass"})
-    assert bad.status_code == 400
-    short = client.post(f"{API}/auth/reset-password", json={"token": token, "password": "short"})
-    assert short.status_code == 422
-
-    r = client.post(f"{API}/auth/reset-password", json={"token": token, "password": "brand-new-pass"})
-    assert r.status_code == 200 and r.json()["user"]["id"] == uid
-    assert client.get(f"{API}/me/trips", headers=bearer(r.json()["token"])).status_code == 200
-    # the old session is signed out, the old password stops working, the new one works, the link is single-use
-    assert client.get(f"{API}/me/trips", headers=h).status_code == 401
-    assert client.post(f"{API}/auth/login", json={"email": email, "password": "trip-pass-123"}).status_code == 401
-    assert client.post(f"{API}/auth/login", json={"email": email, "password": "brand-new-pass"}).status_code == 200
-    assert client.post(f"{API}/auth/reset-password", json={"token": token, "password": "another-pass-1"}).status_code == 400
-
-
-def test_reset_with_the_six_digit_code(client, monkeypatch):
-    sent = _capture_mail(monkeypatch)
-    uid, h, s = signup(client, "Code Reset")
-    email = s["user"]["email"]
-    client.post(f"{API}/auth/forgot-password", json={"email": email})
-    to, subject, text, html = sent[-1]
-    code = re.search(r"code in the app: (\d{6})", text).group(1)
-    assert subject.startswith(code) and code in html and "reset-password?token=" in html   # branded HTML with link and code
-
-    # asking again replaces the first link and code
-    first_token = re.search(r"token=([\w-]+)", text).group(1)
-    client.post(f"{API}/auth/forgot-password", json={"email": email})
-    code = re.search(r"code in the app: (\d{6})", sent[-1][2]).group(1)
-    assert client.post(f"{API}/auth/reset-password", json={"token": first_token, "password": "brand-new-pass"}).status_code == 400
-
-    # neither a token nor email + code is a 422; a wrong code says how many tries are left
-    assert client.post(f"{API}/auth/reset-password", json={"password": "brand-new-pass"}).status_code == 422
-    wrong = "000000" if code != "000000" else "111111"
-    r = client.post(f"{API}/auth/reset-password", json={"email": email, "code": wrong, "password": "brand-new-pass"})
-    assert r.status_code == 400 and "4 tries left" in r.json()["detail"]
-    r = client.post(f"{API}/auth/reset-password", json={"email": email.upper(), "code": code, "password": "brand-new-pass"})
-    assert r.status_code == 200 and r.json()["user"]["id"] == uid
-    assert client.post(f"{API}/auth/login", json={"email": email, "password": "brand-new-pass"}).status_code == 200
-
-
-def test_five_wrong_codes_lock_the_reset(client, monkeypatch):
-    sent = _capture_mail(monkeypatch)
-    _, _, s = signup(client, "Guess Proof")
-    email = s["user"]["email"]
-    client.post(f"{API}/auth/forgot-password", json={"email": email})
-    code = re.search(r"code in the app: (\d{6})", sent[-1][2]).group(1)
-    wrong = "000000" if code != "000000" else "111111"
-    for _ in range(5):
-        client.post(f"{API}/auth/reset-password", json={"email": email, "code": wrong, "password": "brand-new-pass"})
-    # even the right code no longer works
-    r = client.post(f"{API}/auth/reset-password", json={"email": email, "code": code, "password": "brand-new-pass"})
-    assert r.status_code == 400
 
 
 def test_delete_account(client, monkeypatch):

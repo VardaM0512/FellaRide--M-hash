@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
 Lat = Field(ge=-90, le=90)
 Lon = Field(ge=-180, le=180)
@@ -108,24 +108,6 @@ class CompareIn(BaseModel):
 class LoginIn(BaseModel):
     email: str = Field(min_length=3, max_length=200, description="Email or mobile number")
     password: str = Field(min_length=1, max_length=72)
-
-
-class ForgotPasswordIn(BaseModel):
-    email: str = Email
-
-
-class ResetPasswordIn(BaseModel):
-    """Either the token from the emailed link, or the email address plus the 6-digit code from the same email."""
-    token: str | None = Field(None, min_length=20, max_length=200, pattern=r"^[A-Za-z0-9_\-]+$")
-    email: str | None = Field(None, min_length=5, max_length=200, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-    code: str | None = Field(None, pattern=r"^[0-9]{6}$")
-    password: str = Password
-
-    @model_validator(mode="after")
-    def _token_or_code(self):
-        if not self.token and not (self.email and self.code):
-            raise ValueError("Use the link from the email, or enter your email and the 6-digit code.")
-        return self
 
 
 class DeleteAccountIn(BaseModel):

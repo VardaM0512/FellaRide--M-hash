@@ -1339,7 +1339,3 @@ table.data tbody tr:hover { background: var(--mist-2); }
 .rider-pay { display: grid; gap: 6px; }
 .rider-pay-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 10px 6px 56px; }
 
-/* forgot password: the 6-digit code */
-/* its own class: the sign-up Join and Referral code fields use .code-input and must keep their normal size */
-.otp-input { font-family: var(--font-display); font-size: calc(28px * var(--ts)) !important; letter-spacing: 0.5em; text-align: center; font-variant-numeric: tabular-nums; font-weight: 700 !important; }
-.otp-input::placeholder { letter-spacing: 0.5em; color: var(--mist-3); }

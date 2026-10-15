@@ -22,11 +22,6 @@ export const useDemoAccounts = (tenantId: number | undefined, q: string) =>
     enabled: !!tenantId,
   });
 export const login = (email: string, password: string) => request<Session>('/auth/login', { method: 'POST', body: { email, password }, auth: false });
-export const forgotPassword = (email: string) =>
-  request<{ ok: boolean; message: string }>('/auth/forgot-password', { method: 'POST', body: { email }, auth: false });
-/** Set a new password with the emailed link's token, or with the email address and the 6-digit code. */
-export const resetPassword = (proof: { token: string } | { email: string; code: string }, password: string) =>
-  request<Session>('/auth/reset-password', { method: 'POST', body: { ...proof, password }, auth: false });
 export const deleteAccount = (password: string) => request<{ ok: boolean }>('/me/delete', { method: 'POST', body: { password } });
 export const demoLogin = (tenantId: number, memberId: number) => request<Session>('/auth/demo-login', { method: 'POST', body: { tenant_id: tenantId, member_id: memberId }, auth: false });
 export const lookupJoinCode = (code: string) => request<Community>(`/join/${encodeURIComponent(code)}`, { auth: false });

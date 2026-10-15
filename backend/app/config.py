@@ -54,6 +54,12 @@ class Settings(BaseSettings):
     smtp_user: str = ""
     smtp_password: str = ""
     smtp_from: str = ""                     # defaults to smtp_user
+    # Brevo (brevo.com) transactional email over HTTPS. Preferred over SMTP and works where outbound SMTP is
+    # blocked (Render's free plan). The key is a secret: set FELLARIDE_BREVO_API_KEY in the environment, never in
+    # code or .env.example. mail_from must be a sender you verified in Brevo (Senders & IPs).
+    brevo_api_key: str = ""
+    mail_from: str = ""                     # verified sender address for Brevo; falls back to smtp_from / smtp_user
+    mail_from_name: str = "FellaRide"
     # Where the web app lives, for links in emails (no trailing slash).
     app_url: str = "http://localhost:5173"
     # Postgres connections per API process (Supabase's pooler allows 15 in total across everything)

@@ -26,7 +26,7 @@ FellaRide turns a community (a college, company, residential society, alumni net
 | Feature | What it does |
 |---|---|
 | **Sign up** | Email, mobile, password, name and gender, plus an **optional join code**. With a code you join that community. Without one you join the main community set by `FELLARIDE_DEFAULT_JOIN_CODE` (the synthetic demo, `DEMO2026`, in `.env.example`), or else the open community for everyone. |
-| **Sign in** | With email **or** mobile number, plus password. The session lasts 12 hours. **Forgot password?** emails a one-time link that works for 30 minutes; setting a new password signs out every other session. |
+| **Sign in** | With email **or** mobile number, plus password. The session lasts 12 hours. There is no password reset (see Known limitations). |
 | **Driving or riding?** | Home asks *"I'm driving"* or *"I need a ride"* **every time**. It is never fixed to the account. |
 | **Offer a ride** | From and to (search a place, use your current location, or tap the map), leaving time, empty seats and your car (model, colour, number plate; saved for next time). Riders see the model and colour; only approved riders see the number plate. |
 | **Route confirmation** | Up to 3 real driving routes on the map. The driver picks and confirms one before posting. |
@@ -329,6 +329,25 @@ python docs/build_architecture.py                      # writes docs/architectur
 | Your own account | App → **Create an account** (join code optional; `DEMO2026` for the demo community) | The full member app: drive, ride, chat, rate, report |
 | Any demo member | App → **Try the demo community** → tap a person | The member app as that synthetic person |
 
+### Signing in, step by step
+
+Use the join code **`DEMO2026`**. It puts you in the demo community, where rides, members and dashboard data already exist. Without it you land in the empty open community and will see no rides.
+
+**Create your own account — what we recommend judges do:**
+
+1. Open **https://fellaride-web.onrender.com** and give it a moment to wake up (free hosting sleeps, so the first load can take about a minute).
+2. Tap **Create an account**.
+3. Enter your name, gender, email, mobile number and a password of at least 8 characters.
+4. In **Join code**, enter **`DEMO2026`**. This step is what connects you to the demo community and its rides.
+5. Tap **Create account**. You are signed in and land on Home.
+6. Set your pickup point when asked, then use **Offer a ride** to drive or **Find rides** to ride.
+
+**Signing in again later:** tap **Sign in** and use your email *or* your mobile number, plus your password. A session lasts 12 hours. There is no password reset, so if you forget the password, create another account with `DEMO2026`.
+
+**As the organiser, for the dashboard:** sign in with the demo organiser account in the table above, then open `/dashboard`.
+
+**As an existing demo member, the fastest route with no sign-up:** on the welcome screen tap **Try the demo community** and pick a person. You get the full member app as that synthetic member.
+
 Every API route except sign-in, sign-up, the public community list and demo sign-in needs `Authorization: Bearer <token>`.
 
 ## Environment variables
@@ -354,7 +373,8 @@ Every API route except sign-in, sign-up, the public community list and demo sign
 | `FELLARIDE_LEARNING_RATE_DECAY_UPDATES` | `1000` | Learning slows as a model sees more outcomes: lr / (1 + updates / this). 0 = constant |
 | `FELLARIDE_EXPLORE_SHARE` | `0.15` | Real communities: share of each day's nudges sent to random members, to keep training data unbiased |
 | `FELLARIDE_AUTO_ADVANCE_DAYS` | `true` | Real communities: the engine day follows the calendar (India time), one day per local day |
-| `FELLARIDE_SMTP_HOST`, `_PORT`, `_USER`, `_PASSWORD`, `_FROM` | empty, `587` | Sends forgot-password emails. Without a host, the reset link is written to the API log (local testing only) |
+| `FELLARIDE_SMTP_HOST`, `_PORT`, `_USER`, `_PASSWORD`, `_FROM` | empty, `587` | SMTP server for the sign-up verification code. Render's free plan blocks outbound SMTP, so prefer Brevo below |
+| `FELLARIDE_BREVO_API_KEY`, `FELLARIDE_MAIL_FROM`, `FELLARIDE_MAIL_FROM_NAME` | empty, empty, `FellaRide` | Brevo transactional email over HTTPS, which works where SMTP is blocked. `MAIL_FROM` must be a sender verified in Brevo. The key is secret: set it in the environment, never in git. With neither Brevo nor SMTP set, the code goes to the API log and verification isn't required |
 | `FELLARIDE_APP_URL` | `http://localhost:5173` | The web app's address, used in reset links |
 | `VITE_API_URL` (frontend) | `http://localhost:8000` | Where the frontend finds the API |
 
@@ -375,7 +395,7 @@ Tables are created automatically on startup. Sprint 3 only **added** tables, and
 
 | Group | Endpoints |
 |---|---|
-| Account | `POST /auth/signup` · `POST /auth/login` (email or mobile) · `POST /auth/forgot-password` · `POST /auth/reset-password` · `POST /me/delete` · `POST /auth/demo-login` · `GET /auth/me` · `GET /join/{code}` · `GET /tenants/{t}/demo-accounts` · `POST /auth/register` (engine commute sign-up) · `POST /auth/verify-email` · `POST /auth/verify-email/send` (6-digit sign-up code; required before posting or booking only while SMTP is configured) |
+| Account | `POST /auth/signup` · `POST /auth/login` (email or mobile) · `POST /me/delete` · `POST /auth/demo-login` · `GET /auth/me` · `GET /join/{code}` · `GET /tenants/{t}/demo-accounts` · `POST /auth/register` (engine commute sign-up) · `POST /auth/verify-email` · `POST /auth/verify-email/send` (6-digit sign-up code; required before posting or booking only while email sending is configured) |
 | Me | `PUT /me/profile` · `POST /me/location` · `GET /me/trips` · `GET /me/alerts` · `POST /me/alerts/read` · `GET /me/invites` · `POST /me/invites` |
 | Rides (member app) | `POST /trips` · `GET /trips/search` · `GET /trips/{id}` · `POST /trips/{id}/request` · `/withdraw` · `/start` · `/end` · `/cancel` · `POST /trips/{id}/seats/{s}/approve` · `/reject` · `/board` · `/no-show` (rider not at pickup, from the planned time) |
 | Chat and updates | `GET /trips/{id}/messages` · `POST /trips/{id}/messages` · `POST /trips/{id}/notify` |
@@ -492,6 +512,7 @@ Every team member is expected to be able to explain, modify and debug every part
 
 ## Known limitations
 
+- **There is no password reset.** The forgot-password flow is removed for now, so a forgotten password cannot be recovered in the app: create a new account with join code `DEMO2026`, or ask the organiser.
 - **Alerts arrive by polling** (every 8 seconds). There is no push server, so phone notifications show only while the browser keeps the app alive, and they need https or localhost.
 - **Calling uses the phone's dialer** (`tel:` link), not voice inside the app.
 - **"Near you" uses your last known location:** your latest search, posted ride or shared location. There is no live GPS tracking.
@@ -513,10 +534,10 @@ Every team member is expected to be able to explain, modify and debug every part
 Deliberate trade-offs for a hackathon demo on free hosting. They are documented here so they're treated as known limitations, not defects:
 
 - **Cost-sharing is trust-based.** The trip distance (`route_km` / `route_min`) and route come from the driver's device and aren't re-verified on the server. Contributions are suggestions only, capped so the riders together never pay more than the trip's stated running cost, and money changes hands outside the app (UPI or cash). There is no payment integration or server-side distance audit.
-- **Sign-up tells you whether an email or mobile is already registered** (a clear "already exists" message) so people can recover an account. Sign-in and forgot-password are deliberately uniform and reveal nothing.
+- **Sign-up tells you whether an email or mobile is already registered** (a clear "already exists" message) so people can recover an account. Sign-in is deliberately uniform and reveals nothing.
 - **Driver name, gender and approximate area are visible to signed-in members before approval**, so riders can choose a ride. Exact home location, number plate and phone number are shown only to the driver and approved riders.
-- **Email verification needs a working mail server.** Sign-up emails a 6-digit code and booking waits for it only when SMTP is configured. On hosting that blocks SMTP (Render free), the code is written to the server log and verification is not enforced, so accounts work immediately.
-- **Password-reset and verification codes are written to the server log when SMTP is off** (local and free-tier only). Guesses are limited to 5 tries per code.
+- **Email verification needs a working mail server.** Sign-up emails a 6-digit code and booking waits for it only when email sending is configured (Brevo over HTTPS, or SMTP). With neither set, the code is written to the server log and verification is not enforced, so accounts work immediately.
+- **Verification codes are written to the server log when no mail transport is set** (local and free-tier only). Guesses are limited to 5 tries per code.
 - **Sign-out is on this device only.** Login is a 12-hour stateless token kept in the browser's local storage; signing out clears it locally, but a copied token stays valid until it expires. Changing the password or deleting the account does end other sessions.
 - **Rate limiting is best-effort.** The sign-in / sign-up limiter is in-memory per process, resets on restart, and is keyed on the address the server sees (which can be shared behind a proxy). It slows abuse; it is not a hardened, shared limiter.
 - **Free-tier database limits concurrency.** The connection pool is kept small to stay under Supabase's free cap, so many heavy requests at once can queue. The welcome and community figures are cached for this reason.

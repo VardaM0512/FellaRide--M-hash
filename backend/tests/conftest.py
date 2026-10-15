@@ -8,7 +8,9 @@ os.environ["FELLARIDE_ADMIN_KEY"] = ""
 os.environ["FELLARIDE_SEED_DEMO_DAYS"] = "3"
 os.environ["FELLARIDE_JWT_SECRET"] = "test-secret-test-secret-test-secret-1234"
 os.environ["FELLARIDE_AUTH_RATE_LIMIT"] = "1000"
-os.environ["FELLARIDE_ACTIVATION_STRICT"] = "true"   # bridge errors fail the test instead of being logged
+os.environ["FELLARIDE_ACTIVATION_STRICT"] = "true"
+os.environ["FELLARIDE_SMTP_HOST"] = ""        # the tests decide when email "can be sent"
+os.environ["FELLARIDE_BREVO_API_KEY"] = ""    # never send real email from the test suite   # bridge errors fail the test instead of being logged
 
 import itertools  # noqa: E402
 
