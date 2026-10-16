@@ -16,6 +16,22 @@ from ..models import Connection, Destination, Member, MemberState, SyntheticTrai
 
 CENTER = (12.9716, 77.5946)   # synthetic city centre (coordinates only, no real community data)
 
+# The demo communities are named after the institution the app is demonstrated at, and shown under those names
+# alone. Everything in them is still generated: `is_synthetic` marks them in every API response, the demo sign-in
+# screen says so in words, and the README discloses it (hackathon rule 3).
+DEMO_NAME = "MIT Manipal"
+NEIGHBOUR_NAME = "Manipal Tech Park"
+# Every name these two have been seeded under, so an existing database renames itself on startup instead of
+# needing hand-written SQL.
+LEGACY_NAMES = {
+    "Synthetic University (demo)": DEMO_NAME,
+    "Banyan Grove University (demo)": DEMO_NAME,
+    "MIT Manipal (demo)": DEMO_NAME,
+    "Synthetic Tech Park (demo)": NEIGHBOUR_NAME,
+    "Silverline Tech Park (demo)": NEIGHBOUR_NAME,
+    "Manipal Tech Park (demo)": NEIGHBOUR_NAME,
+}
+
 # Positions in km from the main campus (east, north), matching the simulator layout.
 DESTINATIONS = [("Main Campus", 0.0, 0.0), ("Medical Block", 4.2, -2.8), ("Tech Park", 4.3, 3.5)]
 HOODS = [
@@ -33,12 +49,6 @@ FIRST = ["Aarav", "Diya", "Ishaan", "Ananya", "Kabir", "Meera", "Rohan", "Saanvi
          "Sneha", "Varun", "Pooja", "Aman", "Nisha", "Karan", "Shreya", "Harsh", "Divya", "Om", "Leela", "Manav",
          "Asha", "Rhea", "Farhan", "Gauri", "Jay"]
 LAST = "ABCDEGHJKLMNPRSTV"
-
-# The demo communities' names: made up, so no real place or institution is implied. "(demo)" keeps them labelled
-# as synthetic wherever the name is shown; the apps hide the suffix next to their own Demo tag.
-DEMO_NAME = "Banyan Grove University (demo)"
-NEIGHBOUR_NAME = "Silverline Tech Park (demo)"
-LEGACY_NAMES = {"Synthetic University (demo)": DEMO_NAME, "Synthetic Tech Park (demo)": NEIGHBOUR_NAME}
 
 
 def create_synthetic_tenant(db: Session, name: str = DEMO_NAME, seed_active: int = 15,
@@ -133,7 +143,7 @@ def create_synthetic_tenant(db: Session, name: str = DEMO_NAME, seed_active: int
 
 
 def rename_legacy_demos(db: Session) -> int:
-    """Databases seeded before the demo communities had names: give them the current ones."""
+    """A database seeded under an older name: give the demo communities their current ones."""
     n = 0
     for t in db.scalars(select(Tenant).where(Tenant.is_synthetic.is_(True), Tenant.name.in_(list(LEGACY_NAMES)))):
         t.name = LEGACY_NAMES[t.name]

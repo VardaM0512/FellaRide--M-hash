@@ -2,7 +2,7 @@
 // built up day by day, and which routes it came from. Prints as a one-page report for a college or a sponsor.
 import { useState, type KeyboardEvent, type MouseEvent } from 'react';
 import { useImpact, type Impact } from '../api/organiser';
-import { CountUp, DemoTag, ErrorNote, Icon, Skeleton } from '../components/ui';
+import { CountUp, ErrorNote, Icon, Skeleton } from '../components/ui';
 import { displayName } from '../lib/format';
 import { rupees } from '../lib/pricing';
 import { useSession } from '../lib/session';
@@ -88,7 +88,7 @@ export default function ImpactPage() {
 
       <section className="imp-band" aria-labelledby="imp-h">
         <div className="imp-band-top">
-          <p className="band-live"><span className="live-dot" aria-hidden="true" />Since the community started{d.synthetic && <DemoTag show />}</p>
+          <p className="band-live"><span className="live-dot" aria-hidden="true" />Since the community started</p>
           <button className="btn btn-small imp-print no-print" onClick={() => window.print()}>{OrgIcon.download}Download report</button>
         </div>
         <div className="band-hero">

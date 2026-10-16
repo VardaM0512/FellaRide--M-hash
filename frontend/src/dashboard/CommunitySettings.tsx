@@ -3,7 +3,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useCommunity } from '../api/hooks';
 import { useRenameCommunity } from '../api/organiser';
-import { DemoTag, ErrorNote, Skeleton } from '../components/ui';
+import { ErrorNote, Skeleton } from '../components/ui';
 import { displayName } from '../lib/format';
 import { usePrefs, type ThemePref } from '../lib/prefs';
 import { useSession } from '../lib/session';
@@ -45,7 +45,7 @@ export default function CommunitySettings() {
         <dl className="facts">
           <dt>Kind</dt><dd>{KIND[c.kind] || c.kind}</dd>
           <dt>Day</dt><dd>Day {c.current_day} · {c.clock === 'manual' ? 'simulated timeline' : 'follows the calendar'}</dd>
-          <dt>Data</dt><dd>{c.synthetic ? <><DemoTag show /> synthetic members, no real people</> : 'Real members'}</dd>
+          <dt>Data</dt><dd>{c.synthetic ? 'Synthetic members, no real people' : 'Real members'}</dd>
         </dl>
         <h3 style={{ fontSize: 16 }}>Destinations</h3>
         <ul className="dest-list">{c.destinations.map((d) => <li key={d.id}><span className="dest-dot" aria-hidden="true" />{d.name}<span className="small muted num">{d.lat.toFixed(3)}, {d.lon.toFixed(3)}</span></li>)}</ul>

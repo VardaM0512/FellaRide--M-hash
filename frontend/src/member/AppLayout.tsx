@@ -9,6 +9,7 @@ import { ratingText } from '../lib/tripFormat';
 import { useAnnounce } from '../lib/announce';
 import { showSystemNotification } from '../lib/notify';
 import { useSession } from '../lib/session';
+import CommunityName, { CommunitySheet } from './CommunitySwitch';
 import { ThemeToggle } from './Settings';
 
 const TITLES: Record<string, string> = {
@@ -128,6 +129,7 @@ export default function AppLayout() {
   const { banner, dismiss, unread } = useAlertBanner();
   useQuietLocation();
   const [collapsed, setCollapsed] = useCollapsed();
+  const [switcher, setSwitcher] = useState(false);   // the sheet lives below, outside the app bar's z-index
   const mainRef = useRef<HTMLElement>(null);
   const [scrolled, setScrolled] = useState(false);
   const prevTab = useRef(TAB_ORDER.indexOf(pathname));
@@ -160,8 +162,7 @@ export default function AppLayout() {
             </svg>
           </button>
         </div>
-        <p className="line-name"><span className="line-swatch" aria-hidden="true" /><span>{session?.tenant.name.replace(/\s*\(demo\)$/i, '')}</span>
-          {session?.tenant.synthetic && <span className="line-tag">Demo</span>}</p>
+        <CommunityName where="sidebar" onOpen={() => setSwitcher(true)} />
         <nav aria-label="Main">
           <ol className="metro">
             {tabs.map((tab) => (
@@ -199,7 +200,7 @@ export default function AppLayout() {
         </AnimatePresence>
         <AnimatePresence mode="wait" initial={false}>
           <motion.h1 key={title} className="title-wrap" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.16 }}>
-            {title}<span className="sub">{session?.tenant.name}{session?.tenant.synthetic && <span className="demo-dot"> · Demo data</span>}</span>
+            {title}<CommunityName where="appbar" onOpen={() => setSwitcher(true)} />
           </motion.h1>
         </AnimatePresence>
         <ThemeToggle />
@@ -242,6 +243,7 @@ export default function AppLayout() {
           ))}
         </ul>
       </nav>
+      {switcher && <CommunitySheet onClose={() => setSwitcher(false)} />}
       <AnimatePresence>
         {banner && (
           <motion.div key={banner.id} className="toast" role="status"

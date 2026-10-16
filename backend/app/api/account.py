@@ -5,7 +5,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -15,10 +15,10 @@ from .. import mailer
 from ..config import get_settings
 from ..db import get_db
 from ..engine import activation, daycycle, feedback, referral_program, trips
-from ..models import (Alert, Booking, Car, DriverLicence, EmailVerification, PayoutInfo, Member, ReferralCode, MemberState, Notification, PasswordReset, Profile, Tenant, Trip, TripSeat,
+from ..models import (Alert, Booking, Car, DriverLicence, EmailVerification, PayoutInfo, Member, ReferralCode, MemberState, Notification, PasswordReset, PasswordResetCode, Profile, Tenant, Trip, TripSeat,
                       User)
-from ..schemas import (DeleteAccountIn, DemoLoginIn, FeedbackIn, LoginIn, ReadIn, RegisterIn,
-                       SignupIn, VerifyEmailIn)
+from ..schemas import (DeleteAccountIn, DemoLoginIn, FeedbackIn, ForgotPasswordIn, LoginIn, ReadIn, RegisterIn,
+                       ResetPasswordIn, SignupIn, SwitchCommunityIn, VerifyEmailIn)
 from .deps import get_tenant, member_out, tenant_out
 
 router = APIRouter(tags=["account"])
@@ -209,11 +209,123 @@ def login(body: LoginIn, db: Session = Depends(get_db)):
     return session_out(db, user)
 
 
-CODE_TRIES = 5   # guesses allowed per email-verification code (used above)
+# ---------- forgot password ----------
+RESET_MINUTES = 30
+CODE_TRIES = 5
+
+
+def _token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def _code_hash(user_id: int, code: str) -> str:
+    return hashlib.sha256(f"reset-code:{user_id}:{code}".encode()).hexdigest()
 
 
 def _aware(dt: datetime) -> datetime:
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def _reset_email(name: str, link: str, code: str) -> tuple[str, str]:
+    text = (f"Hi {name},\n\nSomeone asked to reset the password for your FellaRide account.\n\n"
+            f"Set a new password here:\n{link}\n\nOr enter this code in the app: {code}\n\n"
+            f"The link and code work once, for {RESET_MINUTES} minutes. If it wasn't you, ignore this email: "
+            f"your password stays the same.\n\nFellaRide")
+    html = f"""<!doctype html><html><body style="margin:0;background:#EEEDE8;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#101418">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:32px 12px"><tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background:#F8F7F3;border-radius:20px;overflow:hidden;border:1px solid #DCDBD4">
+<tr><td style="background:#101418;padding:22px 28px;color:#F4F4F1;font-size:20px;font-weight:700">Fella<span style="color:#C9973A">Ride</span></td></tr>
+<tr><td style="padding:28px">
+<p style="margin:0 0 6px;font-size:22px;font-weight:700">Reset your password</p>
+<p style="margin:0 0 22px;color:#5A616B;font-size:15px;line-height:1.5">Hi {name}, someone asked to reset the password for your FellaRide account.</p>
+<a href="{link}" style="display:inline-block;background:#101418;color:#F4F4F1;text-decoration:none;font-weight:700;padding:14px 26px;border-radius:999px;font-size:15px">Set a new password</a>
+<p style="margin:26px 0 8px;color:#5A616B;font-size:14px">Or enter this code in the app:</p>
+<p style="margin:0;font-size:34px;letter-spacing:10px;font-weight:700;color:#A87A22;font-family:Menlo,Consolas,monospace">{code}</p>
+<p style="margin:26px 0 0;color:#5A616B;font-size:13px;line-height:1.5">The link and code work once, for {RESET_MINUTES} minutes. If it wasn't you, ignore this email: your password stays the same.</p>
+</td></tr></table>
+<p style="color:#5A616B;font-size:12px;margin:16px 0 0">FellaRide · Community carpooling</p>
+</td></tr></table></body></html>"""
+    return text, html
+
+
+@router.post("/auth/forgot-password", summary="Email a link and a 6-digit code to set a new password (same answer whether or not the email exists)",
+             dependencies=[Depends(auth_rate_limit)])
+def forgot_password(body: ForgotPasswordIn, background: BackgroundTasks, db: Session = Depends(get_db)):
+    user = db.scalar(select(User).where(User.email == body.email.strip().lower()))
+    if user and not is_deleted(user):
+        token, code = secrets.token_urlsafe(32), f"{secrets.randbelow(10 ** 6):06d}"
+        # a new request replaces any older link or code that hasn't been used
+        for old in db.scalars(select(PasswordReset).where(PasswordReset.user_id == user.id, PasswordReset.used_at.is_(None))):
+            old.used_at = datetime.now(timezone.utc)
+        r = PasswordReset(user_id=user.id, token_hash=_token_hash(token),
+                          expires_at=datetime.now(timezone.utc) + timedelta(minutes=RESET_MINUTES))
+        db.add(r)
+        db.flush()
+        db.add(PasswordResetCode(reset_id=r.id, code_hash=_code_hash(user.id, code)))
+        db.commit()
+        p = db.get(Profile, user.id)
+        link = f"{get_settings().app_url.rstrip('/')}/reset-password?token={token}"
+        text, html = _reset_email((p.name.split()[0] if p and p.name else "there"), link, code)
+        background.add_task(mailer.send, user.email, f"{code} is your FellaRide reset code", text, html)
+    # the same answer either way, so nobody can find out who has an account
+    return {"ok": True, "message": f"If an account uses that email, we’ve sent it a link and a 6-digit code. "
+                                   f"They work for {RESET_MINUTES} minutes."}
+
+
+def _reset_from_code(db: Session, email: str, code: str) -> tuple[PasswordReset | None, User | None]:
+    user = db.scalar(select(User).where(User.email == email.strip().lower()))
+    if not user:
+        return None, None
+    r = db.scalar(select(PasswordReset).where(PasswordReset.user_id == user.id, PasswordReset.used_at.is_(None))
+                  .order_by(PasswordReset.id.desc()))
+    c = db.get(PasswordResetCode, r.id) if r else None
+    if not r or not c:
+        return None, None
+    if c.code_hash != _code_hash(user.id, code):
+        c.attempts += 1
+        if c.attempts >= CODE_TRIES:   # too many guesses: this code and its link stop working
+            r.used_at = datetime.now(timezone.utc)
+        db.commit()
+        left = CODE_TRIES - c.attempts
+        raise HTTPException(400, "That code isn’t right." + (f" {left} {'try' if left == 1 else 'tries'} left." if left > 0
+                                                              else " Ask for a new one."))
+    return r, user
+
+
+@router.post("/auth/reset-password", summary="Set a new password with the emailed link, or your email and the 6-digit code; signs you in",
+             dependencies=[Depends(auth_rate_limit)])
+def reset_password(body: ResetPasswordIn, db: Session = Depends(get_db)):
+    if body.token:
+        r = db.scalar(select(PasswordReset).where(PasswordReset.token_hash == _token_hash(body.token)))
+        user = db.get(User, r.user_id) if r else None
+    else:
+        r, user = _reset_from_code(db, body.email, body.code)
+    if not r or r.used_at or _aware(r.expires_at) < datetime.now(timezone.utc) or not user or is_deleted(user):
+        raise HTTPException(400, "This link or code has expired or was already used. Ask for a new one.")
+    user.password_hash = hash_password(body.password)   # also signs out every other session (see auth.password_version)
+    for other in db.scalars(select(PasswordReset).where(PasswordReset.user_id == user.id, PasswordReset.used_at.is_(None))):
+        other.used_at = datetime.now(timezone.utc)
+    db.commit()
+    return session_out(db, user)
+
+
+# ---------- rides that aren't finished ----------
+LIVE_TRIP = ("open", "started")
+HELD_SEAT = ("pending", "approved", "boarded")
+
+
+def live_rides(db: Session, user: User) -> tuple[list[Trip], list[TripSeat]]:
+    """Unfinished rides: the ones you're driving, and the seats you hold on someone else's."""
+    driving = list(db.scalars(select(Trip).where(Trip.driver_id == user.id, Trip.status.in_(LIVE_TRIP))))
+    riding = list(db.scalars(select(TripSeat).join(Trip, Trip.id == TripSeat.trip_id).where(
+        TripSeat.rider_id == user.id, TripSeat.status.in_(HELD_SEAT), Trip.status.in_(LIVE_TRIP))))
+    return driving, riding
+
+
+def travelling_now(db: Session, driving: list[Trip], riding: list[TripSeat]) -> bool:
+    """On the road right now: a seat you've boarded, or a rider on board a ride you're driving."""
+    return any(s.status == "boarded" for s in riding) or any(
+        s.status in trips.RODE for t in driving for s in trips.seats(db, t))
 
 
 # ---------- delete account ----------
@@ -224,12 +336,8 @@ def delete_account(body: DeleteAccountIn, actor: Actor = Depends(current_actor),
         raise HTTPException(403, "Organiser accounts can’t be deleted from the app.")
     if not verify_password(body.password, user.password_hash):
         raise HTTPException(403, "That password isn’t right.")
-    live = ("open", "started")
-    driving = list(db.scalars(select(Trip).where(Trip.driver_id == user.id, Trip.status.in_(live))))
-    riding = list(db.scalars(select(TripSeat).join(Trip, Trip.id == TripSeat.trip_id).where(
-        TripSeat.rider_id == user.id, TripSeat.status.in_(("pending", "approved", "boarded")), Trip.status.in_(live))))
-    if any(s.status == "boarded" for s in riding) or any(
-            s.status in trips.RODE for t in driving for s in trips.seats(db, t)):
+    driving, riding = live_rides(db, user)
+    if travelling_now(db, driving, riding):
         raise HTTPException(409, "You’re on a ride right now. End it first, then delete your account.")
     try:   # riders and drivers are told, exactly as if you had cancelled or withdrawn yourself
         for t in driving:
@@ -375,6 +483,84 @@ def me(actor: Actor = Depends(current_actor), db: Session = Depends(get_db)):
     out = session_out(db, actor.user)
     out.pop("token")
     return out
+
+
+# ---------- which community you're in ----------
+# A member belongs to one community at a time: the one whose rides, board and leaderboard they see. Moving
+# leaves that community's member record (rides, badges, funnel) behind as its history; coming back claims the
+# same record again, because it is matched on your email.
+def community_brief(db: Session, t: Tenant) -> dict:
+    """A community at a glance, for the "your community" card and the switch list."""
+    joined = db.scalar(select(func.count(Member.id)).where(
+        Member.tenant_id == t.id, Member.state != MemberState.DISCOVERED)) or 0
+    return {"id": t.id, "name": t.name, "kind": t.kind, "open": t.kind == PUBLIC_KIND, "synthetic": t.is_synthetic,
+            "members": joined, "destinations": [d.name for d in t.destinations][:4]}
+
+
+def rides_here(db: Session, user: User, tenant_id: int) -> int:
+    """Rides this account has actually shared in one community: driven, plus seats travelled."""
+    drove = db.scalar(select(func.count(Trip.id)).where(
+        Trip.tenant_id == tenant_id, Trip.driver_id == user.id, Trip.status == "completed")) or 0
+    rode = db.scalar(select(func.count(TripSeat.id)).join(Trip, Trip.id == TripSeat.trip_id).where(
+        Trip.tenant_id == tenant_id, TripSeat.rider_id == user.id, TripSeat.status == "dropped")) or 0
+    return drove + rode
+
+
+def switch_block(db: Session, user: User) -> str | None:
+    """Why this account can't move community right now, or None if it can."""
+    if user.role == "admin":
+        return "Organiser accounts stay with the community they run."
+    driving, riding = live_rides(db, user)
+    if travelling_now(db, driving, riding):
+        return "You’re on a ride right now. Finish it first, then you can move."
+    if driving:
+        return "You have a ride open here. Cancel it first, so nobody is left waiting for a seat."
+    if riding:
+        return "You’ve asked for a seat here. Withdraw it first, then you can move."
+    return None
+
+
+@router.get("/me/community", summary="The community you’re in, and the ones you can move to")
+def my_community(actor: Actor = Depends(current_actor), db: Session = Depends(get_db)):
+    user = actor.user
+    tenant = db.get(Tenant, user.tenant_id)
+    blocked = switch_block(db, user)
+    # Any community can be joined with its code. The open one is the only one offered by name, so a private
+    # community still can't be walked into from a list.
+    open_community = community_brief(db, public_tenant(db)) if tenant.kind != PUBLIC_KIND else None
+    return {
+        "current": {**community_brief(db, tenant), "join_code": tenant.join_code,
+                    "your_rides": rides_here(db, user, tenant.id)},
+        "can_switch": blocked is None,
+        "blocked": blocked,
+        "open_community": open_community,
+    }
+
+
+@router.post("/me/community", summary="Move to another community: its join code, or the open one",
+             dependencies=[Depends(auth_rate_limit)])
+def switch_community(body: SwitchCommunityIn, actor: Actor = Depends(current_actor), db: Session = Depends(get_db)):
+    user = actor.user
+    if user.role == "admin":
+        raise HTTPException(403, "Organiser accounts stay with the community they run.")
+    code = (body.join_code or "").strip().upper()
+    if code:
+        target = db.scalar(select(Tenant).where(Tenant.join_code == code))
+        if not target:
+            raise HTTPException(404, "No community uses that join code. Check it with your organiser.")
+    else:
+        target = public_tenant(db)
+    if target.id == user.tenant_id:
+        raise HTTPException(409, f"You’re already in {target.name}.")
+    blocked = switch_block(db, user)
+    if blocked:
+        raise HTTPException(409, blocked)
+    user.tenant_id = target.id
+    user.member_id = None            # the community you leave keeps your member record as its own history
+    db.flush()
+    activation.safe(db, activation.on_signup, user, True)   # claim or open your member record in the new one
+    db.commit()
+    return session_out(db, user)
 
 
 # ---------- the signed-in member's messages ----------

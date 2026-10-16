@@ -2,6 +2,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSession } from '../lib/session';
 import { request } from './client';
+import type { Session } from './types';
 
 export type PostKind = 'update' | 'ask' | 'offer' | 'thanks' | 'tip';
 export type Emoji = 'thumbs' | 'heart' | 'party' | 'thanks';
@@ -29,7 +30,28 @@ export interface Impact {
 export type Metric = 'rides' | 'co2' | 'people';
 export type Period = 'week' | 'all';
 
+// ---------- which community you're in ----------
+export interface CommunityBrief {
+  id: number; name: string; kind: string; open: boolean; synthetic: boolean; members: number; destinations: string[];
+}
+export interface MyCommunity {
+  current: CommunityBrief & { join_code: string | null; your_rides: number };
+  /** False while a ride here is still open, or for an organiser account: `blocked` says why. */
+  can_switch: boolean;
+  blocked: string | null;
+  /** The one community offered by name. Null when you're already in it; any other needs its join code. */
+  open_community: CommunityBrief | null;
+}
+
 const useUid = () => useSession().session?.user.id ?? 0;
+
+export const useMyCommunity = () => {
+  const uid = useUid();
+  return useQuery({ queryKey: ['community', 'mine', uid], queryFn: () => request<MyCommunity>('/me/community') });
+};
+/** Move to the community with this join code, or to the open one when there's no code. Returns a new session. */
+export const switchCommunity = (joinCode?: string) =>
+  request<Session>('/me/community', { method: 'POST', body: { join_code: joinCode?.trim().toUpperCase() || null } });
 
 export const useOverview = () => {
   const uid = useUid();

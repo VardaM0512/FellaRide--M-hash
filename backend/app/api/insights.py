@@ -129,7 +129,7 @@ def run_simulation(body: SimulateIn, tenant: Tenant = Depends(get_tenant), db: S
 def compare(body: CompareIn, db: Session = Depends(get_db)):
     out = {}
     for strategy in ("smart", "random"):
-        t = create_synthetic_tenant(db, name=f"{DEMO_NAME.removesuffix(' (demo)')} ({strategy} run)", seed_active=body.seed_active)
+        t = create_synthetic_tenant(db, name=f"{DEMO_NAME} ({strategy} run)", seed_active=body.seed_active)
         db.commit()
         simulate(db, t, body.days, strategy=strategy, budget=body.budget)
         out[strategy] = {"tenant_id": t.id, "kpis": metrics.kpis(db, t), "funnel": metrics.funnel(db, t),

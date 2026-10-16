@@ -55,8 +55,6 @@ export function Logo({ size = 40 }: { size?: number }) {
   return <img src="/brand/fella-logo.png" alt="" width={size} height={size} className="brand-logo" style={{ width: size, height: size }} />;
 }
 
-export const DemoTag = ({ show }: { show: boolean }) => (show ? <span className="chip chip-demo">Demo data</span> : null);
-
 /** Bottom sheet on phones, side sheet on the dashboard. Esc closes, focus moves in and comes back. */
 export function Sheet({ title, onClose, side = false, children }: { title: string; onClose: () => void; side?: boolean; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);

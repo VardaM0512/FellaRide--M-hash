@@ -5,7 +5,7 @@ import { Link } from 'react-router-dom';
 import { useClusters, useCommunity, useFunnel, useMetrics, useTimeseries } from '../api/hooks';
 import { useOrgReferrals, useTripsOverview } from '../api/organiser';
 import type { Kpis } from '../api/types';
-import { CountUp, DemoTag, ErrorNote, Icon, Skeleton, Sparkline } from '../components/ui';
+import { CountUp, ErrorNote, Icon, Skeleton, Sparkline } from '../components/ui';
 import { displayName, pct } from '../lib/format';
 import ActivityFeed from './Activity';
 import { OrgIcon } from './orgIcons';
@@ -28,7 +28,6 @@ function Hero() {
         <p className="band-live">
           <span className="live-dot" aria-hidden="true" />
           {c ? `Day ${c.current_day} · ${c.clock === 'manual' ? 'Simulated timeline' : 'Following the calendar'}` : 'Loading'}
-          {c?.synthetic && <DemoTag show />}
         </p>
         <h2 id="hero-h">{greeting()}. <span>{c ? displayName(c.name) : ''}</span></h2>
         <div className="band-hero">

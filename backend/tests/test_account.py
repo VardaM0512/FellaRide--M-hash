@@ -1,4 +1,4 @@
-"""Account lifecycle: email verification, deleting your account, and several drivers on one route."""
+"""Account lifecycle: forgot and reset password, email verification, deleting your account, and several drivers on one route."""
 import re
 
 from app import mailer
@@ -18,6 +18,71 @@ def _capture_mail(monkeypatch, kind="reset"):
     monkeypatch.setattr(mailer, "send", send)
     return sent
 
+
+def test_forgot_and_reset_password(client, monkeypatch):
+    sent = _capture_mail(monkeypatch)
+    uid, h, s = signup(client, "Reset Me")
+    email = s["user"]["email"]
+
+    # the same answer for a real and an unknown email; only the real one gets a link
+    a = client.post(f"{API}/auth/forgot-password", json={"email": email})
+    b = client.post(f"{API}/auth/forgot-password", json={"email": "nobody-here@example.org"})
+    assert a.status_code == b.status_code == 200 and a.json() == b.json()
+    assert len(sent) == 1 and sent[0][0] == email
+    token = re.search(r"reset-password\?token=([\w-]+)", sent[0][2]).group(1)
+
+    bad = client.post(f"{API}/auth/reset-password", json={"token": "x" * 40, "password": "brand-new-pass"})
+    assert bad.status_code == 400
+    short = client.post(f"{API}/auth/reset-password", json={"token": token, "password": "short"})
+    assert short.status_code == 422
+
+    r = client.post(f"{API}/auth/reset-password", json={"token": token, "password": "brand-new-pass"})
+    assert r.status_code == 200 and r.json()["user"]["id"] == uid
+    assert client.get(f"{API}/me/trips", headers=bearer(r.json()["token"])).status_code == 200
+    # the old session is signed out, the old password stops working, the new one works, the link is single-use
+    assert client.get(f"{API}/me/trips", headers=h).status_code == 401
+    assert client.post(f"{API}/auth/login", json={"email": email, "password": "trip-pass-123"}).status_code == 401
+    assert client.post(f"{API}/auth/login", json={"email": email, "password": "brand-new-pass"}).status_code == 200
+    assert client.post(f"{API}/auth/reset-password", json={"token": token, "password": "another-pass-1"}).status_code == 400
+
+
+def test_reset_with_the_six_digit_code(client, monkeypatch):
+    sent = _capture_mail(monkeypatch)
+    uid, h, s = signup(client, "Code Reset")
+    email = s["user"]["email"]
+    client.post(f"{API}/auth/forgot-password", json={"email": email})
+    to, subject, text, html = sent[-1]
+    code = re.search(r"code in the app: (\d{6})", text).group(1)
+    assert subject.startswith(code) and code in html and "reset-password?token=" in html   # branded HTML with link and code
+
+    # asking again replaces the first link and code
+    first_token = re.search(r"token=([\w-]+)", text).group(1)
+    client.post(f"{API}/auth/forgot-password", json={"email": email})
+    code = re.search(r"code in the app: (\d{6})", sent[-1][2]).group(1)
+    assert client.post(f"{API}/auth/reset-password", json={"token": first_token, "password": "brand-new-pass"}).status_code == 400
+
+    # neither a token nor email + code is a 422; a wrong code says how many tries are left
+    assert client.post(f"{API}/auth/reset-password", json={"password": "brand-new-pass"}).status_code == 422
+    wrong = "000000" if code != "000000" else "111111"
+    r = client.post(f"{API}/auth/reset-password", json={"email": email, "code": wrong, "password": "brand-new-pass"})
+    assert r.status_code == 400 and "4 tries left" in r.json()["detail"]
+    r = client.post(f"{API}/auth/reset-password", json={"email": email.upper(), "code": code, "password": "brand-new-pass"})
+    assert r.status_code == 200 and r.json()["user"]["id"] == uid
+    assert client.post(f"{API}/auth/login", json={"email": email, "password": "brand-new-pass"}).status_code == 200
+
+
+def test_five_wrong_codes_lock_the_reset(client, monkeypatch):
+    sent = _capture_mail(monkeypatch)
+    _, _, s = signup(client, "Guess Proof")
+    email = s["user"]["email"]
+    client.post(f"{API}/auth/forgot-password", json={"email": email})
+    code = re.search(r"code in the app: (\d{6})", sent[-1][2]).group(1)
+    wrong = "000000" if code != "000000" else "111111"
+    for _ in range(5):
+        client.post(f"{API}/auth/reset-password", json={"email": email, "code": wrong, "password": "brand-new-pass"})
+    # even the right code no longer works
+    r = client.post(f"{API}/auth/reset-password", json={"email": email, "code": code, "password": "brand-new-pass"})
+    assert r.status_code == 400
 
 def test_delete_account(client, monkeypatch):
     sent = _capture_mail(monkeypatch)
@@ -136,3 +201,89 @@ def test_without_an_email_server_accounts_work_straight_away(client):
     s = client.post(f"{API}/auth/signup", json=_signup_body("verify2@example.org", "+91 77004 00004")).json()
     assert s["user"]["email_verified"] is False and s["user"]["email_verification_required"] is False
     assert client.post(f"{API}/trips", headers=bearer(s["token"]), json={}).status_code == 422   # not blocked
+
+
+# ---------- which community you're in, and moving between them ----------
+def test_my_community_card_shows_the_community_and_whether_you_can_move(client, community):
+    _, h, s = signup(client, "Nita C.", join_code=community["join_code"])
+    r = client.get(f"{API}/me/community", headers=h)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["current"]["id"] == s["tenant"]["id"] and body["current"]["name"] == community["name"]
+    assert body["current"]["join_code"] == community["join_code"]   # members share it to invite people
+    assert body["current"]["members"] >= 1 and body["current"]["your_rides"] == 0
+    assert body["current"]["open"] is False
+    assert body["can_switch"] is True and body["blocked"] is None
+    assert body["open_community"]["open"] is True                  # the one community offered by name
+
+    # the organiser runs this community and stays in it
+    admin = client.get(f"{API}/me/community", headers=community["admin_headers"]).json()
+    assert admin["can_switch"] is False and "Organiser" in admin["blocked"]
+    assert client.post(f"{API}/me/community", headers=community["admin_headers"], json={}).status_code == 403
+
+
+def test_switching_community_with_a_join_code_and_back_to_the_open_one(client, community):
+    made = client.post(f"{API}/tenants", json={
+        "name": "Second College", "kind": "university", "center_lat": 12.97, "center_lon": 77.59,
+        "destinations": [{"name": "North Gate", "lat": 12.97, "lon": 77.59}],
+        "admin": {"name": "Second Admin", "email": "second-college@example.org", "password": "admin-pass-123"}})
+    assert made.status_code == 201, made.text
+    other = made.json()
+    _, h, s = signup(client, "Omar C.", "male", join_code=community["join_code"])
+    assert s["tenant"]["id"] == community["id"]
+
+    moved = client.post(f"{API}/me/community", headers=h, json={"join_code": other["join_code"].lower()})
+    assert moved.status_code == 200, moved.text
+    assert moved.json()["tenant"]["id"] == other["id"]
+    h2 = bearer(moved.json()["token"])
+    assert client.get(f"{API}/auth/me", headers=h2).json()["tenant"]["id"] == other["id"]
+    assert client.get(f"{API}/me/community", headers=h2).json()["current"]["name"] == "Second College"
+    # you only see the board of the community you're in now
+    assert client.post(f"{API}/me/community", headers=h2, json={"join_code": other["join_code"]}).status_code == 409
+    assert client.post(f"{API}/me/community", headers=h2, json={"join_code": "NOPE12"}).status_code == 404
+
+    # no code: the open community everyone can join
+    back = client.post(f"{API}/me/community", headers=h2, json={})
+    assert back.status_code == 200 and back.json()["tenant"]["kind"] == "public"
+    assert client.get(f"{API}/me/community", headers=bearer(back.json()["token"])).json()["open_community"] is None
+
+
+def test_an_open_ride_has_to_be_settled_before_moving_community(client, community):
+    _, dh, _ = signup(client, "Pia C.", join_code=community["join_code"])
+    _, rh, _ = signup(client, "Quinn C.", "male", join_code=community["join_code"])
+    tid = post_trip(client, dh)["id"]
+    client.post(f"{API}/trips/{tid}/request", headers=rh, json={})
+
+    for h, word in ((dh, "ride open"), (rh, "asked for a seat")):
+        r = client.post(f"{API}/me/community", headers=h, json={})
+        assert r.status_code == 409 and word in r.json()["detail"], r.text
+        assert client.get(f"{API}/me/community", headers=h).json()["can_switch"] is False
+
+    client.post(f"{API}/trips/{tid}/cancel", headers=dh)
+    assert client.post(f"{API}/me/community", headers=dh, json={}).status_code == 200
+    assert client.post(f"{API}/me/community", headers=rh, json={}).status_code == 200
+
+
+def test_the_community_you_leave_keeps_your_history_and_gives_it_back(client, community):
+    _, dh, _ = signup(client, "Rhea C.", join_code=community["join_code"])
+    _, rh, rs = signup(client, "Sam C.", "male", join_code=community["join_code"])
+    tid = post_trip(client, dh)["id"]
+    client.post(f"{API}/trips/{tid}/request", headers=rh, json={})
+    seat = client.get(f"{API}/trips/{tid}", headers=dh).json()["riders"][0]["seat_id"]
+    client.post(f"{API}/trips/{tid}/seats/{seat}/approve", headers=dh)
+    client.post(f"{API}/trips/{tid}/seats/{seat}/board", headers=dh)
+    client.post(f"{API}/trips/{tid}/start", headers=dh)
+    client.post(f"{API}/trips/{tid}/end", headers=dh)
+    assert client.get(f"{API}/me/community", headers=rh).json()["current"]["your_rides"] == 1
+
+    away = client.post(f"{API}/me/community", headers=rh, json={})
+    assert away.status_code == 200
+    h2 = bearer(away.json()["token"])
+    assert client.get(f"{API}/me/community", headers=h2).json()["current"]["your_rides"] == 0
+    assert client.get(f"{API}/me/trips", headers=h2).json()["history"][0]["id"] == tid   # still yours to rate
+
+    home = client.post(f"{API}/me/community", headers=h2, json={"join_code": community["join_code"]})
+    assert home.status_code == 200
+    h3 = bearer(home.json()["token"])
+    assert home.json()["user"]["member_id"] == rs["user"]["member_id"] or home.json()["member"]["name"] == "Sam C."
+    assert client.get(f"{API}/me/community", headers=h3).json()["current"]["your_rides"] == 1

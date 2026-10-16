@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
-import { DemoPicker, SignIn, Signup, StartCommunity, Welcome } from './auth/AuthScreens';
+import { DemoPicker, ForgotPassword, ResetPassword, SignIn, Signup, StartCommunity, Welcome } from './auth/AuthScreens';
 import Announce from './dashboard/Announce';
 import CommunitySettings from './dashboard/CommunitySettings';
 import EnginePage from './dashboard/EnginePage';
@@ -63,6 +63,8 @@ export default function App() {
       <Route path="welcome" element={<SignedOutOnly><Welcome /></SignedOutOnly>} />
       <Route path="signin" element={<SignedOutOnly><SignIn /></SignedOutOnly>} />
       <Route path="signup" element={<SignedOutOnly><Signup /></SignedOutOnly>} />
+      <Route path="forgot-password" element={<SignedOutOnly><ForgotPassword /></SignedOutOnly>} />
+      <Route path="reset-password" element={<ResetPassword />} />
       <Route path="join" element={<Navigate to="/signup" replace />} />
       <Route path="demo" element={<SignedOutOnly><DemoPicker /></SignedOutOnly>} />
       <Route path="start" element={<SignedOutOnly><StartCommunity /></SignedOutOnly>} />
