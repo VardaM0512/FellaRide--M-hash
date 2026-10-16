@@ -15,6 +15,11 @@ from ..models import Connection, Destination, Member, MemberState, SyntheticTrai
 
 CENTER = (12.9716, 77.5946)   # synthetic city centre (coordinates only, no real community data)
 
+# The demo community is named after the institution the app is demonstrated at, and shown under that name alone.
+# Everything in it is still generated: `is_synthetic` marks it in every API response, the demo sign-in screen says
+# so in words, and the README discloses it (hackathon rule 3).
+DEMO_NAME = "MIT Manipal"
+
 # Positions in km from the main campus (east, north), matching the simulator layout.
 DESTINATIONS = [("Main Campus", 0.0, 0.0), ("Medical Block", 4.2, -2.8), ("Tech Park", 4.3, 3.5)]
 HOODS = [
@@ -34,7 +39,7 @@ FIRST = ["Aarav", "Diya", "Ishaan", "Ananya", "Kabir", "Meera", "Rohan", "Saanvi
 LAST = "ABCDEGHJKLMNPRSTV"
 
 
-def create_synthetic_tenant(db: Session, name: str = "Synthetic University (demo)", seed_active: int = 15,
+def create_synthetic_tenant(db: Session, name: str = DEMO_NAME, seed_active: int = 15,
                             seed: int = 7, center: tuple[float, float] = CENTER, kind: str = "university") -> Tenant:
     rng = random.Random(seed)
     tenant = Tenant(name=name, kind=kind, center_lat=center[0], center_lon=center[1], is_synthetic=True)
@@ -125,7 +130,7 @@ def create_synthetic_tenant(db: Session, name: str = "Synthetic University (demo
     return tenant
 
 
-NEIGHBOUR_NAME = "Synthetic Tech Park (demo)"
+NEIGHBOUR_NAME = "Manipal Tech Park"
 
 
 def create_neighbour_tenant(db: Session, of: Tenant) -> Tenant:

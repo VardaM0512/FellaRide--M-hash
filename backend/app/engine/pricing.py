@@ -4,7 +4,7 @@ A rider's suggested contribution is the distance *they* travel x a per-km rate, 
 The no-profit cap: everything the riders pay together can never be more than the trip costs to drive
 (fuel plus wear), even with every seat full and every rider going the whole way. The driver may lower the rate,
 or make the ride free, but not raise it above that cap. The money changes hands outside the app (UPI or cash)."""
-from .geo import haversine_km
+from .geo import haversine_km, project_on_route
 
 SUGGESTED_PER_KM = 3.0     # Rs per km a rider travels (about FellaRide's $0.20/km, scaled to Indian costs)
 MIN_CONTRIBUTION = 30      # Rs per seat, unless that would break the cap on a short trip
@@ -27,20 +27,19 @@ def trip_cost(route_km: float) -> int:
 
 def along_route_km(route: list, from_lat: float | None, from_lon: float | None, to_lat: float | None = None,
                    to_lon: float | None = None) -> float:
-    """Distance along the driver's route between the points nearest a rider's pickup and drop
+    """Distance along the driver's route between the spots on the road nearest a rider's pickup and drop
     (no pickup: from the start; no drop: to the end)."""
     if len(route) < 2:
         return 0.0
+    total = sum(haversine_km(route[i][0], route[i][1], route[i + 1][0], route[i + 1][1]) for i in range(len(route) - 1))
 
-    def idx(lat, lon, default):
+    def at(lat, lon, default):
         if lat is None or lon is None:
             return default
-        return min(range(len(route)), key=lambda i: haversine_km(lat, lon, route[i][0], route[i][1]))
+        return project_on_route(route, lat, lon)[2]
 
-    a, b = idx(from_lat, from_lon, 0), idx(to_lat, to_lon, len(route) - 1)
-    if b < a:
-        a, b = b, a
-    return sum(haversine_km(route[i][0], route[i][1], route[i + 1][0], route[i + 1][1]) for i in range(a, b))
+    a, b = at(from_lat, from_lon, 0.0), at(to_lat, to_lon, total)
+    return abs(b - a)
 
 
 def per_seat(per_km: float, rider_km: float, route_km: float, seats_total: int) -> int:

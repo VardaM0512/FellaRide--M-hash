@@ -10,6 +10,48 @@ FellaRide turns a community (a college, company, residential society, alumni net
 
 ---
 
+## Log in (start here)
+
+### Demo credentials
+
+| What | Value |
+|---|---|
+| Live app | **https://fellaride-web.onrender.com** (free hosting sleeps — the first load can take about a minute) |
+| Organiser dashboard | https://fellaride-web.onrender.com/dashboard |
+| API | https://fellaride-api.onrender.com · interactive docs at `/docs` |
+| Community join code | **`DEMO2026`** — use it when you create an account, or you land in the empty open community and see no rides |
+| Demo organiser | **`admin@demo.fellaride.app`** / **`vndFlmbbXm5ESSiEvW-vfKC3`** on the live site. A fresh local database uses `FELLARIDE_DEMO_ADMIN_PASSWORD` instead (default `fellaride-demo-admin`). |
+| Demo members | **No password.** Welcome screen → **Try the demo community** → tap a person. Synthetic accounts have no usable password and are reachable only through that route. |
+| Your own account | Whatever you sign up with. Sign in by email **or** mobile number; a session lasts 12 hours. Forgotten it? **Forgot password?** on the sign-in screen emails you a link and a 6-digit code. |
+
+### Step by step
+
+**Fastest, no sign-up (as a demo member):**
+
+1. Open the app.
+2. Tap **Try the demo community**.
+3. Tap any person in the list. You are in the full member app as that synthetic member (answer gender and mobile once if asked).
+
+**As the organiser, for the dashboard:**
+
+1. Open the app and tap **Sign in**.
+2. Enter the demo organiser email and password from the table above.
+3. Open **/dashboard**: https://fellaride-web.onrender.com/dashboard
+
+**As your own new account (what we recommend judges do):**
+
+1. Open the app and tap **Create an account**.
+2. Enter your name, gender, email, mobile number and a password of at least 8 characters.
+3. In **Join code**, enter **`DEMO2026`**. This is what connects you to the demo community and its rides — without it you land in the empty open community and see no rides.
+4. Tap **Create account**. You are signed in and land on Home. If a 6-digit email code is asked for, enter the one emailed to you (see [Known limitations](#known-limitations) if no mail arrives).
+5. Set your pickup point when asked, then use **Offer a ride** to drive or **Find rides** to ride.
+
+**Coming back later:** tap **Sign in** and use your email *or* your mobile number, plus your password. A session lasts 12 hours. Forgotten the password? Tap **Forgot password?** and we email you a link and a 6-digit code that work once, for 30 minutes.
+
+More detail, including local and Docker setup, is in [Install and run](#install-and-run) and [Signing in, step by step](#signing-in-step-by-step).
+
+---
+
 ## Team
 
 | | |
@@ -26,7 +68,8 @@ FellaRide turns a community (a college, company, residential society, alumni net
 | Feature | What it does |
 |---|---|
 | **Sign up** | Email, mobile, password, name and gender, plus an **optional join code**. With a code you join that community. Without one you join the main community set by `FELLARIDE_DEFAULT_JOIN_CODE` (the synthetic demo, `DEMO2026`, in `.env.example`), or else the open community for everyone. |
-| **Sign in** | With email **or** mobile number, plus password. The session lasts 12 hours. There is no password reset (see Known limitations). |
+| **Sign in** | With email **or** mobile number, plus password. The session lasts 12 hours. |
+| **Forgot password** | **Forgot password?** on the sign-in screen emails a one-time link *and* a 6-digit code, so the email can be read on another device. Either one sets a new password and signs you in; both work once, for 30 minutes, and asking again cancels the previous one. Five wrong codes kill that code and its link. Only hashes of the link token and the code are stored, so a leaked database cannot reset anyone. The answer is the same whether or not the email has an account, so nobody can use it to find out who is a member. Setting a new password signs out every other session. Email goes out through **Brevo** (see Environment variables). |
 | **Driving or riding?** | Home asks *"I'm driving"* or *"I need a ride"* **every time**. It is never fixed to the account. |
 | **Offer a ride** | From and to (search a place, use your current location, or tap the map), leaving time, empty seats and your car (model, colour, number plate; saved for next time). Riders see the model and colour; only approved riders see the number plate. |
 | **Route confirmation** | Up to 3 real driving routes on the map. The driver picks and confirms one before posting. |
@@ -34,6 +77,7 @@ FellaRide turns a community (a college, company, residential society, alumni net
 | **Find a ride** | Every ride whose route passes near your pickup **and then** your drop, showing each driver's name, gender, rating, car, time, seats left and distance. Filter by female or male drivers, sort by closest, soonest or top rated, and ask **several drivers at once**: the first to approve gets you and the other requests are withdrawn. |
 | **Seat requests** | The rider asks for a seat. The driver sees the rider's name, gender, rating and pickup, then **approves or declines**. |
 | **Car rules** | A full car auto-declines the remaining requests. A rider who is approved somewhere has their other requests withdrawn. Each person has one active ride at a time. |
+| **Who’s in the car** | Once a ride has matched, one card draws the car as a line of stops: the driver with their car and rating, then everyone riding — in the car now, still to get on, or already off — each saying **where they get on**, and then the seats still free, drawn as empty stops so an empty car looks empty. A row of pips counts the seats (one per seat offered, filled for the seats taken). Your own stop is marked **You** and carries no call or report button. The first free seat offers **Invite someone**. The driver and the riders see the same card. Nothing on it is estimated: every line is something the ride already knows. |
 | **Boarding code** | Everyone approved sees the **same 4-digit code** and checks it before getting in. |
 | **"Who got in?"** | The driver picks each rider from a dropdown and taps **Got in**. |
 | **Chat and call** | A group chat for the driver and approved riders. **Call** opens the phone dialer. Mobile numbers are shown only to people in the same ride. |
@@ -44,6 +88,7 @@ FellaRide turns a community (a college, company, residential society, alumni net
 | **Reports** | Report anyone from a ride by choosing reasons from a list (multiple choice) and adding an optional note. Each report is filed under its most serious category (**Safety > Money or identity > Reliability > Behaviour > Other**) with a severity of high, medium or low. |
 | **Notifications** | An in-app banner and an Alerts tab with an unread badge. **Phone notifications** come through a service worker when the app is in the background. |
 | **You** | Profile (edit name, gender and mobile), your car, rating, ride history, notification and location settings, and **Delete my account** (confirmed with your password: open rides are cancelled, personal details removed, past rides kept as "Deleted user"). |
+| **Your community** | The app names the community you are in — in the sidebar on laptops, under the title in the app bar on phones, where there is no sidebar — and tapping either opens a sheet with its kind, how many members it has, how many rides you have shared there, its stops, its join code, and the way to **move to another community**: the open community everyone can join, or any community whose join code you have (the code is looked up first, so you see where you are going). A ride still open there has to be cancelled or withdrawn first, so nobody is left waiting; organiser accounts stay with the community they run. The community you leave keeps the rides you shared in it as its own history, your account, rating and past rides stay with you, and coming back gives you your place in it again. |
 | **Community** | This week's shared challenge, what the community has achieved together (rides, km shared, estimated CO2 saved), a board where members post, react and reply, live ride activity, a friendly leaderboard, and each member's own impact and badges. |
 | **Refer friends** | Your personal **referral code and link** (share on WhatsApp, the share sheet, or copy). Anyone who signs up with it joins your community and is credited to you; so is anyone who signs up with an email you invited. **+10 points** when a friend joins, **+40** when they take their first shared ride. Tiers count friends who actually rode: Bronze at 1, Silver at 3, Gold at 10. You see each friend's stage (joined, first ride done) and the community's top referrers; the organiser dashboard shows referral sign-ups, first-ride rate and top referrers. |
 | **Invites** | Invite someone by name and email. You get a ready-made message with a sign-up link. They appear in your community straight away, and when they sign up with that email the invite counts for you. |
@@ -342,7 +387,7 @@ Use the join code **`DEMO2026`**. It puts you in the demo community, where rides
 5. Tap **Create account**. You are signed in and land on Home.
 6. Set your pickup point when asked, then use **Offer a ride** to drive or **Find rides** to ride.
 
-**Signing in again later:** tap **Sign in** and use your email *or* your mobile number, plus your password. A session lasts 12 hours. There is no password reset, so if you forget the password, create another account with `DEMO2026`.
+**Signing in again later:** tap **Sign in** and use your email *or* your mobile number, plus your password. A session lasts 12 hours. Forgotten the password? Tap **Forgot password?**: we email a link and a 6-digit code, either of which sets a new one.
 
 **As the organiser, for the dashboard:** sign in with the demo organiser account in the table above, then open `/dashboard`.
 
@@ -395,8 +440,8 @@ Tables are created automatically on startup. Sprint 3 only **added** tables, and
 
 | Group | Endpoints |
 |---|---|
-| Account | `POST /auth/signup` · `POST /auth/login` (email or mobile) · `POST /me/delete` · `POST /auth/demo-login` · `GET /auth/me` · `GET /join/{code}` · `GET /tenants/{t}/demo-accounts` · `POST /auth/register` (engine commute sign-up) · `POST /auth/verify-email` · `POST /auth/verify-email/send` (6-digit sign-up code; required before posting or booking only while email sending is configured) |
-| Me | `PUT /me/profile` · `POST /me/location` · `GET /me/trips` · `GET /me/alerts` · `POST /me/alerts/read` · `GET /me/invites` · `POST /me/invites` |
+| Account | `POST /auth/signup` · `POST /auth/login` (email or mobile) · `POST /auth/forgot-password` · `POST /auth/reset-password` (link token, or email + 6-digit code) · `POST /me/delete` · `POST /auth/demo-login` · `GET /auth/me` · `GET /join/{code}` · `GET /tenants/{t}/demo-accounts` · `POST /auth/register` (engine commute sign-up) · `POST /auth/verify-email` · `POST /auth/verify-email/send` (6-digit sign-up code; required before posting or booking only while email sending is configured) |
+| Me | `PUT /me/profile` · `POST /me/location` · `GET /me/trips` · `GET /me/alerts` · `POST /me/alerts/read` · `GET /me/invites` · `POST /me/invites` · `GET /me/community` (the one you are in, and whether you can move) · `POST /me/community` (move: a join code, or none for the open community) |
 | Rides (member app) | `POST /trips` · `GET /trips/search` · `GET /trips/{id}` · `POST /trips/{id}/request` · `/withdraw` · `/start` · `/end` · `/cancel` · `POST /trips/{id}/seats/{s}/approve` · `/reject` · `/board` · `/no-show` (rider not at pickup, from the planned time) |
 | Chat and updates | `GET /trips/{id}/messages` · `POST /trips/{id}/messages` · `POST /trips/{id}/notify` |
 | Trust | `POST /trips/{id}/ratings` · `POST /reports` · `GET /report-reasons` |
@@ -409,7 +454,7 @@ Tables are created automatically on startup. Sprint 3 only **added** tables, and
 | Insights | `GET /tenants/{t}/metrics` · `/metrics/funnel` · `/metrics/timeseries` · `/graph` · `/model` |
 | Network expansion (organiser) | `GET /tenants/{t}/expansion` · `POST …/expansion/run` · `POST …/expansion/autopilot` (synthetic only) · `POST …/expansion/corridors` · `POST …/expansion/demo-neighbour` |
 | Community board | `GET /community/overview` · `/feed` · `/leaderboard` · `/me` · `POST /community/posts` · `DELETE /community/posts/{p}` · `POST …/posts/{p}/reactions` · `GET`/`POST …/posts/{p}/comments` |
-| System | `GET /health` |
+| System | `GET /health` (at the server root, **not** under the `/api/v1` prefix) |
 | Demo (organiser) | `POST /tenants/demo` · `POST /tenants/{t}/simulate` · `POST /tenants/{t}/day/close` · `POST /demo/compare` |
 
 Full, interactive details are at `/docs` on the running API.
@@ -479,7 +524,7 @@ They cover the following.
 
 ## Data disclosure: synthetic data
 
-All demo and training data is **synthetic**. The synthetic community (`app/sim/synthetic.py`) has 180 generated members with generic first names plus an initial, `@example.edu` emails, and generated coordinates around a synthetic centre point. Synthetic records are flagged `synthetic: true` in every API response. Each synthetic member's hidden behaviour (`synthetic_traits`) is read only by the simulator, never by the engine. Data entered by real users (name, gender, mobile, rides) is stored only in this deployment's database.
+All demo and training data is **synthetic**. The demo community is *named* after a real institution (**MIT Manipal**, `DEMO_NAME` in `app/sim/synthetic.py`) because that is where the app is demonstrated, and it is shown under that name alone — there is no “demo” badge on it in the app. Nothing in it is real, and that is disclosed three ways: every API response carries `synthetic: true`, the demo sign-in screen says **“Everyone here is made up”** before you sign in as one of them, and this section. The synthetic community (`app/sim/synthetic.py`) has 180 generated members with generic first names plus an initial, `@example.edu` emails, and generated coordinates around a synthetic centre point. Synthetic records are flagged `synthetic: true` in every API response. Each synthetic member's hidden behaviour (`synthetic_traits`) is read only by the simulator, never by the engine. Data entered by real users (name, gender, mobile, rides) is stored only in this deployment's database.
 
 ## AI tools used
 
@@ -512,7 +557,7 @@ Every team member is expected to be able to explain, modify and debug every part
 
 ## Known limitations
 
-- **There is no password reset.** The forgot-password flow is removed for now, so a forgotten password cannot be recovered in the app: create a new account with join code `DEMO2026`, or ask the organiser.
+- **Password reset needs email to be configured.** `Forgot password?` sends through Brevo (or SMTP). With neither set, the link and code are written to the server log instead, which is fine locally but means a deployed server without `FELLARIDE_BREVO_API_KEY` cannot reset passwords.
 - **Alerts arrive by polling** (every 8 seconds). There is no push server, so phone notifications show only while the browser keeps the app alive, and they need https or localhost.
 - **Calling uses the phone's dialer** (`tel:` link), not voice inside the app.
 - **"Near you" uses your last known location:** your latest search, posted ride or shared location. There is no live GPS tracking.
@@ -534,7 +579,7 @@ Every team member is expected to be able to explain, modify and debug every part
 Deliberate trade-offs for a hackathon demo on free hosting. They are documented here so they're treated as known limitations, not defects:
 
 - **Cost-sharing is trust-based.** The trip distance (`route_km` / `route_min`) and route come from the driver's device and aren't re-verified on the server. Contributions are suggestions only, capped so the riders together never pay more than the trip's stated running cost, and money changes hands outside the app (UPI or cash). There is no payment integration or server-side distance audit.
-- **Sign-up tells you whether an email or mobile is already registered** (a clear "already exists" message) so people can recover an account. Sign-in is deliberately uniform and reveals nothing.
+- **Sign-up, invites and profile edits tell you whether an email or mobile is already registered** (a clear "already exists" message) so people can recover an account. Anyone can therefore test whether a given address or number has an account. Sign-in is deliberately uniform and reveals nothing.
 - **Driver name, gender and approximate area are visible to signed-in members before approval**, so riders can choose a ride. Exact home location, number plate and phone number are shown only to the driver and approved riders.
 - **Email verification needs a working mail server.** Sign-up emails a 6-digit code and booking waits for it only when email sending is configured (Brevo over HTTPS, or SMTP). With neither set, the code is written to the server log and verification is not enforced, so accounts work immediately.
 - **Verification codes are written to the server log when no mail transport is set** (local and free-tier only). Guesses are limited to 5 tries per code.
@@ -545,6 +590,15 @@ Deliberate trade-offs for a hackathon demo on free hosting. They are documented 
 - **Passwords are limited to 72 bytes** (a bcrypt constraint), so a very long non-Latin passphrase may be rejected.
 - **The interactive API docs (`/docs`, `/openapi.json`) are public**, and the community list exposes only names and destinations.
 - **No extra browser security headers** (CSP, X-Frame-Options, HSTS) are set on the static web app; it relies on React's output escaping and the server's input validation.
+- **Anyone can create a community, and whoever creates it becomes its organiser.** `POST /tenants` needs no login. An organiser of *any* community can also call the heavy demo endpoints — `POST /tenants/demo` (builds a 180-member synthetic community) and `POST /demo/compare` (runs two simulations of up to 90 days) — so on free hosting a self-made organiser account can trigger that work repeatedly and grow the database. For a real deployment, put both behind the operator key (`X-Admin-Key`) and gate community creation.
+- **On the live deployment, sign-ups without a code land in the synthetic demo community, and demo sign-in is open there.** `render.yaml` sets `FELLARIDE_DEFAULT_JOIN_CODE=DEMO2026` and `FELLARIDE_DEMO_LOGIN=true`, so `POST /auth/demo-login` hands out a working member session in the same community as real people, with no email, password or join code. From there a stranger can browse real drivers' rides, names, genders and approximate areas, read the board, and send seat requests. Deliberate for judging; for a real community, send default sign-ups elsewhere and set `FELLARIDE_DEMO_LOGIN=false`.
+- **Signing up with an email claims any unclaimed member record with that address.** Members the organiser imported, or records a friend's invite created, are attached to the first account that signs up with that email, together with their name, commute and imported home location (your own profile shows your home at full precision). The real owner then can't sign up, because the address is taken, and invite or referral credit can be claimed the same way. Email verification closes this, but it is only enforced while mail sending is configured (above).
+- **Ending a ride sidesteps the 10-minute cancellation lock.** `POST /trips/{id}/cancel` refuses within 10 minutes of departure; `/end` has no such check, so a driver who ends the trip instead closes it and approved riders who never boarded are marked as no-shows. A penalty applies only if the driver also left before the planned time.
+- **There is no per-member cap on actions that notify other people.** Community posts, comments and ride updates (`POST /trips/{id}/notify`) aren't covered by the sign-in limiter, so a member can flood the community board and other members' alerts.
+- **Ratings don't require evidence that a ride really happened.** Both people must have been on the trip and the trip must be over, but two accounts can post a short ride, board, end it and rate each other. Ratings are recency-weighted, not weighted by distinct counterparties, so a high score is weak proof of trustworthiness on its own.
+- **The boarding code is a 4-digit number** (10,000 possibilities). Seat state is enforced on the server and the code is shown only to approved riders, so it's a verbal "is this the right car" check, not access control.
+- **Map tooltips are rendered as HTML.** Leaflet's `bindTooltip` treats its text as HTML. The names and places in them are validated on the server (`<`, `>`, `{`, `}` are rejected), so nothing injectable gets through today, but it is the one place the frontend doesn't escape.
+- **Requests without a login can cause database writes.** Reading a community advances the engine's day clock when one is due, and sign-up writes before any authentication, so unauthenticated traffic can create database work on the free tier.
 
 ## Sprint status
 
@@ -557,5 +611,3 @@ Deliberate trade-offs for a hackathon demo on free hosting. They are documented 
 | 3c | Network Expansion Engine, community board (challenge, posts, leaderboard, badges), real-data model training, transit-pass redesign | done |
 | 3d | Docker for the API and web app, Render Blueprint with Supabase ([DEPLOY.md](DEPLOY.md)) | done |
 | 4 | Bug Bounty hardening, security pass, public deployment, pitch | in progress |
-
-Use DEMO2026 for community code

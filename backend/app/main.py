@@ -21,7 +21,7 @@ from .engine.scorer import load_pretrained
 from .auth import hash_password
 from .models import Tenant, User
 from .sim.behaviour import simulate
-from .sim.synthetic import create_neighbour_tenant, create_synthetic_tenant
+from .sim.synthetic import DEMO_NAME, create_neighbour_tenant, create_synthetic_tenant
 
 log = logging.getLogger("fellaride")
 
@@ -37,7 +37,7 @@ def seed_demo_if_empty() -> None:
     with SessionLocal() as db:
         if db.scalar(select(Tenant.id).limit(1)) is not None:
             return
-        t = create_synthetic_tenant(db, name="Synthetic University (demo)")
+        t = create_synthetic_tenant(db, name=DEMO_NAME)
         t.join_code = DEMO_JOIN_CODE
         # documented test account for evaluators: the demo community's organiser
         db.add(User(tenant_id=t.id, email=DEMO_ADMIN_EMAIL, role="admin",

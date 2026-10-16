@@ -8,7 +8,7 @@ from ..engine.context import FEATURES
 from ..models import Tenant
 from ..schemas import CompareIn, SimulateIn
 from ..sim.behaviour import SimulationError, simulate
-from ..sim.synthetic import create_synthetic_tenant
+from ..sim.synthetic import DEMO_NAME, create_synthetic_tenant
 from ..auth import Actor, admin_actor, require_admin_global
 from .deps import get_tenant
 
@@ -67,7 +67,7 @@ def run_simulation(body: SimulateIn, tenant: Tenant = Depends(get_tenant), db: S
 def compare(body: CompareIn, db: Session = Depends(get_db)):
     out = {}
     for strategy in ("smart", "random"):
-        t = create_synthetic_tenant(db, name=f"Synthetic University ({strategy} run)", seed_active=body.seed_active)
+        t = create_synthetic_tenant(db, name=f"{DEMO_NAME} ({strategy} run)", seed_active=body.seed_active)
         db.commit()
         simulate(db, t, body.days, strategy=strategy, budget=body.budget)
         out[strategy] = {"tenant_id": t.id, "kpis": metrics.kpis(db, t), "funnel": metrics.funnel(db, t),

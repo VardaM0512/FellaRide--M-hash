@@ -9,7 +9,7 @@ import {
   useAutopilot, useDemoNeighbour, useExpansion, useProposeCorridor, useRunExpansion,
   type Area, type CommunityLink, type ExpansionAction, type ExpansionReport,
 } from '../api/expansion';
-import { DemoTag, ErrorNote, Skeleton } from '../components/ui';
+import { ErrorNote, Skeleton } from '../components/ui';
 import { useAnnounce } from '../lib/announce';
 import { useSession } from '../lib/session';
 
@@ -176,7 +176,6 @@ export default function Expansion() {
           <h1 style={{ fontSize: 'var(--fs-h2)' }}>Network expansion</h1>
           <span className="small muted">{session?.tenant.name}{r ? ` · day ${r.day}` : ''}</span>
         </div>
-        <DemoTag show={synthetic} />
         <span className="spacer" />
         <Link to="/dashboard" className="btn btn-quiet btn-small">Dashboard</Link>
         {synthetic && (

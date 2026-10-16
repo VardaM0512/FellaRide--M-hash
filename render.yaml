@@ -7,6 +7,7 @@ services:
     runtime: docker
     plan: free
     region: singapore
+    autoDeploy: true                        # every push to the repo's default branch redeploys
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
     healthCheckPath: /health
@@ -29,7 +30,13 @@ services:
         value: DEMO2026
       - key: FELLARIDE_APP_URL              # the web app's URL, used in forgot-password links, e.g. https://fellaride-web.onrender.com
         sync: false
-      - key: FELLARIDE_SMTP_HOST            # optional: smtp.gmail.com to email reset links (empty = links only in the API log)
+      - key: FELLARIDE_BREVO_API_KEY        # forgot-password + sign-up codes over HTTPS (SMTP is blocked on Render free).
+        sync: false                         # Set this in the dashboard, never in git. Empty = emails only in the API log.
+      - key: FELLARIDE_MAIL_FROM            # a sender address verified in Brevo (Senders & IPs)
+        sync: false
+      - key: FELLARIDE_MAIL_FROM_NAME
+        value: FellaRide
+      - key: FELLARIDE_SMTP_HOST            # optional SMTP fallback (blocked on Render's free plan)
         sync: false
       - key: FELLARIDE_SMTP_USER            # optional: the Gmail address that sends them
         sync: false
@@ -42,6 +49,7 @@ services:
     runtime: docker
     plan: free
     region: singapore
+    autoDeploy: true                        # every push to the repo's default branch redeploys
     dockerfilePath: ./frontend/Dockerfile
     dockerContext: ./frontend
     envVars:

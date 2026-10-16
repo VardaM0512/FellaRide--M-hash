@@ -9,6 +9,7 @@ import { useAnnounce } from '../lib/announce';
 import { useSession } from '../lib/session';
 import { GENDER_LABEL, SEAT_STATUS, TRIP_STATUS, minutesUntil, ratingText, whenLabel } from '../lib/tripFormat';
 import { Chat, RatePanel, ReportSheet } from './TripParts';
+import RideGroup from './RideGroup';
 import SeatStepper from '../components/SeatStepper';
 import { useLiveShare, type ShareState } from '../lib/liveShare';
 import { rate, rupees } from '../lib/pricing';
@@ -31,19 +32,6 @@ function PersonLine({ p, role, extra, onReport, call }: { p: Person; role?: stri
   );
 }
 
-/** The driver's car. Riders see the model and colour first, and the number plate once they're approved. */
-function CarLine({ trip }: { trip: Trip }) {
-  if (!trip.car) return <p className="small muted">The driver hasn’t added their car details.</p>;
-  return (
-    <div className="car-line">
-      <p style={{ fontWeight: 600 }}>{trip.car.colour} {trip.car.model}</p>
-      {trip.car.plate
-        ? <p className="small">Number plate <strong className="num" style={{ letterSpacing: '0.05em' }}>{trip.car.plate}</strong></p>
-        : <p className="small muted">You’ll see the number plate once the driver approves you.</p>}
-    </div>
-  );
-}
-
 function CodeBox({ code }: { code: string }) {
   return (
     <div className="code-box" aria-label={`Boarding code ${code.split('').join(' ')}`}>
@@ -57,7 +45,7 @@ function CodeBox({ code }: { code: string }) {
 /** Seats whose rider was confirmed on the ride: only they can report, or be reported (the server checks too). */
 const REPORTABLE: SeatStatus[] = ['approved', 'boarded', 'dropped', 'missed', 'no_show', 'cancelled'];
 
-function DriverPanel({ trip, act, busy, report }: { trip: Trip; act: (path: string, ok?: string) => void; busy: boolean; report: (p: Person) => void }) {
+function DriverPanel({ trip, me, act, busy, report }: { trip: Trip; me: number; act: (path: string, ok?: string) => void; busy: boolean; report: (p: Person) => void }) {
   const [boardId, setBoardId] = useState<number | ''>('');
   const pending = trip.riders.filter((r) => r.status === 'pending');
   const approved = trip.riders.filter((r) => r.status === 'approved');
@@ -81,6 +69,9 @@ function DriverPanel({ trip, act, busy, report }: { trip: Trip; act: (path: stri
 
   return (
     <>
+      {/* the same card the riders see: the car as it stands, including the seats still free */}
+      <RideGroup trip={trip} me={me} onReport={report} />
+
       {live && (
         <section className="stack" aria-labelledby="req-h">
           <h3 id="req-h">Seat requests {pending.length > 0 && <span className="chip">{pending.length}</span>}</h3>
@@ -222,27 +213,22 @@ function RiderPanel({ trip, me, act, busy, report, pickup, drop, wanted = 1 }: {
   const live = LIVE.includes(trip.status);
   const others = trip.riders.filter((r) => r.person.id !== me);
   const lastOne = !others.some((r) => r.status === 'approved' || r.status === 'boarded');
-  const onboard = seat && ['approved', 'boarded'].includes(seat.status);
   const [need, setNeed] = useState(wanted);   // seats to ask for: the rider plus friends
   const n = Math.max(1, Math.min(need, trip.seats_left));
 
   return (
     <>
-      <section className="stack" aria-labelledby="drv-h">
-        <h3 id="drv-h">Driver</h3>
-        <PersonLine p={trip.driver} role="Driver" call={!!onboard} onReport={seat && REPORTABLE.includes(seat.status) ? () => report(trip.driver) : undefined} />
-        <CarLine trip={trip} />
+      {/* the driver, everyone riding, and the free seats. Before you're in the group it falls back to the
+          driver on their own, which is all the ride will tell you yet. */}
+      <RideGroup trip={trip} me={me} onReport={seat && REPORTABLE.includes(seat.status) ? report : undefined} />
+
+      <section className="stack" aria-label="What this ride costs">
+        {!trip.car && <p className="small muted">The driver hasn’t added their car details.</p>}
+        {trip.car && !trip.car.plate && <p className="small muted">You’ll see the number plate once the driver approves you.</p>}
         <p className="price-tag">{trip.price.free ? <><strong>Free ride</strong> · the driver isn’t asking for anything</>
           : <><strong>{rupees(seat && seat.status !== 'withdrawn' ? seat.contribution : trip.price.full_route_per_seat)}</strong>
             {seat && seat.status !== 'withdrawn' ? ` for your ${seat.seats > 1 ? `${seat.seats} seats` : 'seat'}` : ' a seat for the whole way'} · cost-sharing at {rate(trip.price.per_km)}</>}</p>
       </section>
-
-      {others.length > 0 && (
-        <section className="stack" aria-labelledby="co-h">
-          <h3 id="co-h">Riding with you</h3>
-          {others.map((r) => <PersonLine key={r.seat_id} p={r.person} extra={SEAT_STATUS[r.status] + (r.seats > 1 ? ` · ${r.seats} seats` : '')} onReport={() => report(r.person)} />)}
-        </section>
-      )}
 
       {live && (
         <section className="stack" aria-label="Your seat">
@@ -355,7 +341,7 @@ export default function TripScreen() {
       {done && <p className="note note-ok" role="status">{done}</p>}
 
       {isDriver
-        ? <DriverPanel trip={trip} act={act} busy={step.isPending} report={setReporting} />
+        ? <DriverPanel trip={trip} me={me} act={act} busy={step.isPending} report={setReporting} />
         : <RiderPanel trip={trip} me={me} act={act} busy={step.isPending} report={setReporting} pickup={state?.pickup ?? null} drop={state?.drop ?? null} wanted={state?.seats ?? 1} />}
 
       {trip.to_rate && trip.to_rate.some((p) => !p.rated) && <RatePanel trip={trip} />}

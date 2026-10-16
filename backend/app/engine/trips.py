@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 from ..models import (Alert, Car, DriverLicence, PayoutInfo, Profile, Rating, Report, SeatPayment, Trip, TripLocation, TripMessage,
                       TripPrice, TripSeat, TripSeatCount, TripSeatDrop, User)
 from . import activation, pricing
-from .geo import haversine_km
+from .geo import haversine_km, project_on_route
 
 NEAR_KM = 2.5            # "near you" alerts and search radius around the route
 EARLY_GRACE_MIN = 5
@@ -462,13 +462,11 @@ def history_for(db: Session, user_id: int, limit: int = 20) -> list[Trip]:
 
 
 # ---------- geometry ----------
-def nearest_on_route(route: list, lat: float, lon: float) -> tuple[float, int]:
-    best, idx = float("inf"), 0
-    for i, (plat, plon) in enumerate(route):
-        d = haversine_km(lat, lon, plat, plon)
-        if d < best:
-            best, idx = d, i
-    return best, idx
+def nearest_on_route(route: list, lat: float, lon: float) -> tuple[float, float]:
+    """Distance in km from a point to the road (not just its stored points), and where along the route that is
+    (segment index + fraction, for comparing pickup / drop order). See geo.project_on_route."""
+    km, pos, _ = project_on_route(route, lat, lon)
+    return km, pos
 
 
 def search(db: Session, tenant_id: int, user_id: int, from_lat: float, from_lon: float,

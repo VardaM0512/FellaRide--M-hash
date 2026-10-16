@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useClusters, useCommunity, useGraph, useMembers } from '../api/hooks';
-import { DemoTag, ErrorNote, Skeleton } from '../components/ui';
+import { ErrorNote, Skeleton } from '../components/ui';
 import { useSession } from '../lib/session';
 import CommunityMap from './CommunityMap';
 import MemberAppPanel from './MemberAppPanel';
@@ -24,7 +24,6 @@ export default function Dashboard() {
     <div className="dash">
       <header className="dash-head">
         <h1 style={{ fontSize: 'var(--fs-h2)' }}>{c ? c.name : <Skeleton w={260} h={30} />}</h1>
-        {c && <DemoTag show={c.synthetic} />}
         {c && <span className="muted">Day {c.current_day} of the community</span>}
         <span className="spacer" />
         {session?.tenant.join_code && (

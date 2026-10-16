@@ -104,7 +104,6 @@ a { color: inherit; }
   display: inline-flex; align-items: center; gap: 6px; border-radius: var(--r-chip); padding: 3px 11px;
   font-size: calc(12px * var(--ts)); font-weight: 600; background: var(--mist-2); color: var(--ink); white-space: nowrap;
 }
-.chip-demo { background: var(--marigold-wash); color: var(--ink); }
 .chip-toggle {
   border: 1.5px solid var(--line); background: var(--paper); padding: 8px 14px; min-height: 40px; cursor: pointer; font-size: var(--fs-small);
   white-space: normal; text-align: left; transition: background-color 150ms ease, border-color 150ms ease, transform 120ms ease, color 150ms ease;
@@ -170,10 +169,12 @@ a { color: inherit; }
 }
 .appbar.scrolled { border-bottom-color: var(--line); box-shadow: var(--shadow-1); }
 .appbar h1 { font-size: calc(21px * var(--ts)); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.appbar .sub { display: block; font-family: var(--font-body); font-size: calc(12px * var(--ts)); font-weight: 500; color: var(--fog); letter-spacing: 0; }
+/* the community you're in, under the title: a button wearing the line's own look (phones have no sidebar) */
+.appbar .sub { display: block; font-family: var(--font-body); font-size: calc(12px * var(--ts)); font-weight: 500; color: var(--fog); letter-spacing: 0;
+  max-width: 100%; padding: 0; background: none; border: 0; text-align: left; cursor: pointer; }
+.appbar .sub:hover { color: var(--ink); }
 .appbar .title-wrap { flex: 1; min-width: 0; }
 .appbar .sub { overflow: hidden; text-overflow: ellipsis; }
-.demo-dot { color: var(--fog); font-weight: 500; }
 .icon-btn {
   width: 44px; height: 44px; border-radius: 999px; border: 0; background: transparent; cursor: pointer;
   display: grid; place-items: center; position: relative; color: var(--ink); text-decoration: none; flex: none;
@@ -314,7 +315,7 @@ h3.section-head { font-size: calc(17px * var(--ts)); }
 /* sheets */
 .sheet-backdrop { position: fixed; inset: 0; background: rgba(9, 9, 11, 0.4); z-index: 30; animation: fade-in 200ms ease both; }
 .sheet {
-  position: fixed; left: 0; right: 0; bottom: 0; z-index: 31; background: var(--paper);
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 31; background: var(--paper); color: var(--ink);   /* its own colours: it can open from the dark sidebar */
   border-radius: 28px 28px 0 0; box-shadow: var(--shadow-sheet);
   padding: 10px 20px calc(24px + env(safe-area-inset-bottom)); max-width: 520px; margin: 0 auto; display: grid; gap: 14px;
   max-height: 88dvh; overflow-y: auto; outline: none;
@@ -629,6 +630,40 @@ table.data tbody tr:hover { background: var(--mist-2); }
 .seat-meter { display: inline-flex; gap: 3px; vertical-align: middle; }
 .seat-meter i { width: 8px; height: 8px; border-radius: 2px; background: var(--peacock); }
 .seat-meter i.taken { background: var(--line); }
+/* the ride group: the car drawn as a line of stops — the driver, who gets on where, and the seats still free */
+.ride-group {
+  background: var(--paper); border: 1px solid var(--line); border-radius: var(--r-card);
+  box-shadow: var(--shadow-1); padding: 16px 18px; display: grid; gap: 10px;
+}
+.rg-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.rg-top h3 { font-size: calc(17px * var(--ts)); }
+.rg-count { display: flex; align-items: center; gap: 8px; color: var(--fog); }
+.rg-pips { display: flex; gap: 3px; }
+.rg-pips i { width: 9px; height: 17px; border-radius: 3px; border: 1.5px solid var(--line); }
+.rg-pips i.on { background: var(--lime); border-color: var(--lime); }
+.rg-line { list-style: none; margin: 0; padding: 0; display: grid; position: relative; }
+/* the line the stops sit on, stopping short of the first and last marker */
+.rg-line::before { content: ''; position: absolute; left: 20px; top: 28px; bottom: 28px; width: 2px; background: var(--line); }
+.rg-stop { position: relative; display: grid; grid-template-columns: 40px 1fr auto; gap: 12px; align-items: center; padding: 7px 0; }
+.rg-dot {
+  width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; flex: none;
+  background: var(--mist-2); color: var(--ink); border: 2px solid var(--paper); font-size: calc(13px * var(--ts)); font-weight: 700;
+}
+.rg-dot svg { width: 20px; height: 20px; }
+.rg-driver .rg-dot { background: var(--ink); color: var(--on-ink); }
+.rg-in .rg-dot { background: var(--lime); color: var(--on-lime); }
+.rg-waiting .rg-dot { background: var(--paper); box-shadow: 0 0 0 2px var(--line) inset; }
+.rg-free .rg-dot { background: transparent; border: 2px dashed var(--fog); color: var(--fog); }
+.rg-gone { opacity: 0.6; }
+.rg-who { display: grid; gap: 1px; min-width: 0; }
+.rg-name { font-weight: 700; }
+.rg-free .rg-name { font-weight: 600; color: var(--fog); }
+.rg-seats-taken { font-weight: 500; color: var(--fog); font-size: var(--fs-small); }
+.rg-you { margin-left: 7px; padding: 1px 8px; border-radius: 999px; background: var(--mist-2); color: var(--fog);
+  font-size: calc(11px * var(--ts)); font-weight: 700; vertical-align: 1px; }
+.rg-act { display: flex; align-items: center; gap: 8px; }
+@media (max-width: 380px) { .rg-call-text { display: none; } }
+
 .person-line { display: grid; grid-template-columns: 44px 1fr auto; gap: 12px; align-items: center; }
 .car-line { padding-left: 56px; display: grid; gap: 2px; }   /* lines up under the driver's name */
 .check-row { display: flex; gap: 12px; align-items: flex-start; font-weight: 600; cursor: pointer; }
@@ -984,6 +1019,10 @@ table.data tbody tr:hover { background: var(--mist-2); }
 }
 .pw-toggle:hover { background: var(--mist-2); }
 .code-input { letter-spacing: 0.12em; font-weight: 700 !important; text-transform: uppercase; }
+/* forgot password: the 6-digit code */
+/* its own class: the sign-up Join and Referral code fields use .code-input and must keep their normal size */
+.otp-input { font-family: var(--font-display); font-size: calc(28px * var(--ts)) !important; letter-spacing: 0.5em; text-align: center; font-variant-numeric: tabular-nums; font-weight: 700 !important; }
+.otp-input::placeholder { letter-spacing: 0.5em; color: var(--mist-3); }
 .picked {
   display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: var(--r-input);
   background: var(--mist-2); color: var(--ink); animation: rise-in 300ms var(--ease-out) both;
@@ -1074,10 +1113,12 @@ table.data tbody tr:hover { background: var(--mist-2); }
     background: transparent; color: var(--hero-muted); transition: background-color 150ms ease, color 150ms ease;
   }
   .side-toggle:hover { background: rgba(255, 255, 255, 0.08); color: var(--hero-text); }
-  .line-name { display: flex; align-items: center; gap: 8px; padding: 0 8px; font-size: var(--fs-small); color: var(--hero-muted); white-space: nowrap; }
+  /* the community you're in: tapping it opens the switcher, so it's a button wearing the line's own look */
+  .line-name { display: flex; align-items: center; gap: 8px; padding: 0 8px; font-size: var(--fs-small); color: var(--hero-muted); white-space: nowrap;
+    width: 100%; background: none; border: 0; font-family: inherit; text-align: left; cursor: pointer; border-radius: 8px; }
+  .line-name:hover { color: var(--hero-text); }
   .line-name > span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; }
   .line-swatch { width: 18px; height: 6px; border-radius: 3px; background: var(--lime); flex: none; }
-  .line-tag { margin-left: auto; padding: 2px 8px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.16); font-size: calc(11px * var(--ts)); }
 
   .metro { position: relative; list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
   .metro::before { content: ''; position: absolute; left: 26px; top: 26px; bottom: 26px; width: 2px; margin-left: -1px; background: rgba(255, 255, 255, 0.14); }

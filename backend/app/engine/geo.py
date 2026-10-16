@@ -40,3 +40,33 @@ def detour_km(driver_home, rider_home, dest) -> float:
     direct = haversine_km(*driver_home, *dest)
     via = haversine_km(*driver_home, *rider_home) + haversine_km(*rider_home, *dest)
     return max(0.0, via - direct)
+
+
+def project_on_route(route: list, lat: float, lon: float) -> tuple[float, float, float]:
+    """Where a point sits relative to a route given as [[lat, lon], ...].
+
+    Returns (distance_km, position, along_km): the distance from the point to the nearest spot on the *road* (the
+    line segments between the stored points, not just the points themselves), that spot's position as
+    segment index + fraction (so two spots in the same segment still compare in driving order), and how far along
+    the route it is in km. Stored routes are thinned, so on a long straight road the points can be several km apart;
+    measuring only to the points would miss a rider standing on the road between them (bug #41)."""
+    if not route:
+        return float("inf"), 0.0, 0.0
+    if len(route) == 1:
+        return haversine_km(lat, lon, route[0][0], route[0][1]), 0.0, 0.0
+    best = (float("inf"), 0.0, 0.0)
+    walked = 0.0
+    for i in range(len(route) - 1):
+        (alat, alon), (blat, blon) = route[i], route[i + 1]
+        seg_km = haversine_km(alat, alon, blat, blon)
+        # local flat-earth km frame centred on the point: accurate to metres at road-segment scale
+        ax, ay = vector_km(lat, lon, alat, alon)
+        bx, by = vector_km(lat, lon, blat, blon)
+        dx, dy = bx - ax, by - ay
+        seg2 = dx * dx + dy * dy
+        t = 0.0 if seg2 < 1e-12 else min(1.0, max(0.0, -(ax * dx + ay * dy) / seg2))
+        d = math.hypot(ax + t * dx, ay + t * dy)
+        if d < best[0]:
+            best = (d, i + t, walked + t * seg_km)
+        walked += seg_km
+    return best
