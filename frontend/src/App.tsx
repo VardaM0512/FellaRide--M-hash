@@ -5,7 +5,9 @@ import Announce from './dashboard/Announce';
 import CommunitySettings from './dashboard/CommunitySettings';
 import EnginePage from './dashboard/EnginePage';
 import Expansion from './dashboard/Expansion';
+import ImpactPage from './dashboard/ImpactPage';
 import LiveMap from './dashboard/LiveMap';
+import LiveRides from './dashboard/LiveRides';
 import Members from './dashboard/Members';
 import More from './dashboard/More';
 import OrgLayout from './dashboard/OrgLayout';
@@ -80,6 +82,8 @@ export default function App() {
         <Route index element={<Overview />} />
         <Route path="map" element={<LiveMap />} />
         <Route path="members" element={<Members />} />
+        <Route path="impact" element={<ImpactPage />} />
+        <Route path="live" element={<LiveRides />} />
         <Route path="rides" element={<RidesSafety />} />
         <Route path="announce" element={<Announce />} />
         <Route path="pricing" element={<PricingPanel />} />

@@ -4,7 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, useLocation, useNavigate, useOutlet } from 'react-router-dom';
 import { useCommunity, useMembers } from '../api/hooks';
-import { useTripsOverview } from '../api/organiser';
+import { useLive, useTripsOverview } from '../api/organiser';
 import { useRates } from '../api/trips';
 import { Avatar, Logo } from '../components/ui';
 import { useAnnounce } from '../lib/announce';
@@ -20,7 +20,7 @@ const TITLES: Record<string, string> = {
   '/dashboard': 'Overview', '/dashboard/map': 'Live map', '/dashboard/members': 'Members', '/dashboard/rides': 'Rides & safety',
   '/dashboard/announce': 'Announcements', '/dashboard/pricing': 'Ride pricing', '/dashboard/engine': 'Activation engine',
   '/dashboard/expansion': 'Network expansion', '/dashboard/proof': 'Engine vs random', '/dashboard/settings': 'Community settings',
-  '/dashboard/more': 'More',
+  '/dashboard/more': 'More', '/dashboard/impact': 'Impact', '/dashboard/live': 'Live rides',
 };
 
 /** Laptops: the sidebar folds to a rail (shared with the member app's choice on this device). */
@@ -46,6 +46,8 @@ export function useStations() {
   const members = useMembers().data;
   const ov = useTripsOverview().data;
   const rates = useRates().data;
+  const live = useLive().data;
+  const onRoad = live?.rides.filter((r) => r.status === 'on_the_way').length ?? 0;
   const openReports = ov ? Object.values(ov.open_reports_by_category).reduce((a, b) => a + b, 0) : 0;
   const joined = members?.filter((m) => m.state !== 'discovered').length;
   const groups: { name: string; items: Station[] }[] = [
@@ -53,8 +55,10 @@ export function useStations() {
       { to: '/dashboard', end: true, label: 'Overview', icon: OrgIcon.overview, note: 'Today at a glance' },
       { to: '/dashboard/map', label: 'Live map', icon: OrgIcon.map, note: 'Homes, routes and rides' },
       { to: '/dashboard/members', label: 'Members', icon: OrgIcon.members, note: joined !== undefined ? `${joined} joined of ${members!.length}` : 'Everyone on the roster' },
+      { to: '/dashboard/impact', label: 'Impact', icon: OrgIcon.leaf, note: 'CO₂, km and money saved' },
     ] },
     { name: 'Run it', items: [
+      { to: '/dashboard/live', label: 'Live rides', icon: OrgIcon.live, note: live ? (onRoad ? `${onRoad} on the road${live.simulated ? ' (simulated)' : ''}` : 'No rides on the road') : 'Rides on the road now' },
       { to: '/dashboard/rides', label: 'Rides & safety', icon: OrgIcon.rides, note: openReports ? `${openReports} open report${openReports === 1 ? '' : 's'}` : 'No open reports', badge: openReports },
       { to: '/dashboard/announce', label: 'Announcements', icon: OrgIcon.announce, note: 'Message your members' },
       { to: '/dashboard/pricing', label: 'Pricing', icon: OrgIcon.pricing, note: rates ? `${rate(rates.suggested_per_km)} suggested` : 'Cost-sharing rates' },
@@ -99,7 +103,8 @@ export default function OrgLayout() {
   const synthetic = community?.synthetic ?? session?.tenant.synthetic;
   const code = session?.tenant.join_code;
   const slug = pathname.split('/')[2] || 'overview';
-  const tabs: Station[] = [all[0], all[1], all[2], all[3], { to: '/dashboard/more', label: 'More', icon: OrgIcon.more }];
+  const tabs: Station[] = [...['/dashboard', '/dashboard/map', '/dashboard/members', '/dashboard/rides'].map((to) => all.find((x) => x.to === to)!),
+    { to: '/dashboard/more', label: 'More', icon: OrgIcon.more }];
   const tabCurrent = tabs.slice(0, 4).some((t) => t.to === current) ? current : '/dashboard/more';
   const out = () => { signOut(); navigate('/welcome'); };
 

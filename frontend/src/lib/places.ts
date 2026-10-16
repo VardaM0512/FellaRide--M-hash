@@ -66,6 +66,26 @@ export async function routesBetween(a: Place, b: Place): Promise<RouteOption[]> 
   }
 }
 
+/** The road through several stops in order (home, pickups, destination), and how far along it each stop is (0 to 1).
+ *  Falls back to straight lines between the stops if the routing service can't be reached. */
+export async function roadThrough(stops: [number, number][]): Promise<{ coords: [number, number][]; at: number[] }> {
+  try {
+    const res = await fetch(`${OSRM}/route/v1/driving/${stops.map(([lat, lon]) => `${lon},${lat}`).join(';')}?overview=full&geometries=geojson`);
+    if (!res.ok) throw new Error();
+    const data = await res.json() as { routes?: { distance: number; legs: { distance: number }[]; geometry: { coordinates: [number, number][] } }[] };
+    const r = data.routes?.[0];
+    if (!r || !r.distance) throw new Error();
+    let run = 0;
+    const at = [0, ...r.legs.map((l) => (run += l.distance) / r.distance)];
+    return { coords: r.geometry.coordinates.map(([lon, lat]) => [lat, lon] as [number, number]), at };
+  } catch {
+    const legs = stops.slice(1).map((p, i) => haversineKm({ lat: stops[i][0], lon: stops[i][1] }, { lat: p[0], lon: p[1] }));
+    const total = legs.reduce((a, b) => a + b, 0) || 1;
+    let run = 0;
+    return { coords: stops, at: [0, ...legs.map((l) => (run += l) / total)] };
+  }
+}
+
 export function haversineKm(a: { lat: number; lon: number }, b: { lat: number; lon: number }) {
   const rad = Math.PI / 180;
   const dLat = (b.lat - a.lat) * rad, dLon = (b.lon - a.lon) * rad;

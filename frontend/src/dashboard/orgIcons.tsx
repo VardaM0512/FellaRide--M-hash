@@ -21,5 +21,7 @@ export const OrgIcon = {
   spark: svg(<><path d="M12 3l2 6 6 2-6 2-2 6-2-6-6-2 6-2z" /></>),
   download: svg(<><path d="M12 4v11M7 10l5 5 5-5M5 20h14" /></>),
   layers: svg(<><path d="M12 4l9 5-9 5-9-5z" /><path d="M3 14l9 5 9-5" /></>),
+  leaf: svg(<><path d="M5 19c0-8 5-13 15-14-1 10-6 15-14 15" /><path d="M5 19c3-4 6-6 9-8" /></>),
+  live: svg(<><path d="M5 16V11l2-5h10l2 5v5M3 16h18M7 19v-3M17 19v-3" /><path d="M19 3.5a5 5 0 0 1 2 2.5M17.5 5.5a2.5 2.5 0 0 1 1 1.2" /></>),
   target: svg(<><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="3" /></>),
 };

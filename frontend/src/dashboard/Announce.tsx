@@ -108,7 +108,11 @@ export default function Announce() {
                 <li key={b.id}>
                   <div className="section-head" style={{ marginBottom: 0 }}><strong>{b.title}</strong><span className="small muted">{ago(b.created_at)}</span></div>
                   {b.body && <p className="small">{b.body}</p>}
-                  <span className="small muted">{AUDIENCE[b.audience]?.label ?? b.audience} · reached {b.sent}</span>
+                  <div className="read-row">
+                    <span className="read-bar" aria-hidden="true"><i style={{ width: `${b.sent ? (b.read / b.sent) * 100 : 0}%` }} /></span>
+                    <span className="small"><strong>{b.read} of {b.sent}</strong> read{b.sent ? ` (${Math.round((b.read / b.sent) * 100)}%)` : ''}</span>
+                  </div>
+                  <span className="small muted">{AUDIENCE[b.audience]?.label ?? b.audience}</span>
                 </li>
               ))}
             </ul>

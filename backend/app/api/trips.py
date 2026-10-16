@@ -3,7 +3,7 @@
 Everything acts as the signed-in user and stays inside their community (or the open community, for people
 who signed up without a join code). Organiser accounts can't ride; they get the overview and broadcast.
 """
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select, update
@@ -12,10 +12,10 @@ from sqlalchemy.orm import Session
 
 from ..auth import Actor, admin_actor, auth_rate_limit, current_actor, member_actor
 from ..db import get_db
-from ..engine import activation, pricing, referrals
+from ..engine import activation, live, pricing, referrals
 from ..engine import trips as T
-from ..models import Alert, Broadcast, Car, CommunityPricing, Member, Profile, Rating, Referral, Report, Tenant, Trip, TripSeat, User
-from ..schemas import BroadcastIn, InviteIn, LocationIn, MessageIn, PricingIn, ProfileIn, RatingIn, ReadIn, ReportIn, SeatRequestIn, TrackIn, TripIn, UpiIn
+from ..models import Alert, Broadcast, Car, CommunityPricing, Member, Suspension, Profile, Rating, Referral, Report, Tenant, Trip, TripSeat, User
+from ..schemas import BroadcastIn, InviteIn, LocationIn, MessageIn, PricingIn, ProfileIn, SuspendIn, RatingIn, ReadIn, ReportIn, SeatRequestIn, TrackIn, TripIn, UpiIn
 from .account import checked_mobile, email_verified, mobile_owner, verification_required
 
 router = APIRouter(tags=["trips"])
@@ -32,6 +32,10 @@ def verified_member(user: User = Depends(rider_or_driver), db: Session = Depends
     (whenever the server can send the code, see account.verification_required)."""
     if verification_required() and not email_verified(db, user):
         raise HTTPException(403, "Confirm your email first: enter the 6-digit code we sent you.")
+    s = db.get(Suspension, user.id)
+    if s:
+        raise HTTPException(403, "Your community's organiser has paused your account, so you can't post or book rides for now."
+                                 + (f" Reason: {s.reason}" if s.reason else ""))
     return user
 
 
@@ -313,7 +317,60 @@ def broadcasts(tenant_id: int, db: Session = Depends(get_db), _: Actor | None = 
     rows = db.scalars(select(Broadcast).where(Broadcast.tenant_id == tenant_id).order_by(Broadcast.id.desc()).limit(30))
     return {"audiences": {a: len(audience_ids(db, tenant_id, a)) for a in ("all", "drivers", "riders", "new")},
             "sent": [{"id": b.id, "title": b.title, "body": b.body, "audience": b.audience, "sent": b.sent,
-                      "created_at": b.created_at} for b in rows]}
+                      "read": broadcast_reads(db, tenant_id, b), "created_at": T.utc(b.created_at).isoformat()} for b in rows]}
+
+
+def broadcast_reads(db: Session, tenant_id: int, b: Broadcast) -> int:
+    """How many of the people it went to have opened it. A broadcast's alerts are written in the same request,
+    just before its row, so they are the community's broadcast alerts with its title and body from that moment."""
+    at = b.created_at
+    return db.scalar(select(func.count(Alert.id)).join(User, User.id == Alert.user_id).where(
+        User.tenant_id == tenant_id, Alert.kind == "broadcast", Alert.title == b.title[:160], Alert.body == b.body[:400],
+        Alert.read.is_(True), Alert.created_at.between(at - timedelta(minutes=1), at + timedelta(seconds=5)))) or 0
+
+
+# ---------- organiser: pause a member ----------
+def _suspension_out(db: Session, s: Suspension) -> dict:
+    reports = db.scalar(select(func.count(Report.id)).where(Report.reported_id == s.user_id)) or 0
+    return {**T.person(db, s.user_id), "reason": s.reason, "report_id": s.report_id, "reports": reports, "since": T.utc(s.created_at).isoformat()}
+
+
+@router.get("/tenants/{tenant_id}/suspensions", summary="Organiser: members who can't post or book rides for now")
+def suspensions(tenant_id: int, db: Session = Depends(get_db), _: Actor | None = Depends(admin_actor)):
+    rows = db.scalars(select(Suspension).where(Suspension.tenant_id == tenant_id).order_by(Suspension.created_at.desc()))
+    return [_suspension_out(db, s) for s in rows]
+
+
+@router.post("/tenants/{tenant_id}/suspensions", status_code=201,
+             summary="Organiser: pause a member (no new rides; rides under way carry on). They get an alert.")
+def suspend(tenant_id: int, body: SuspendIn, db: Session = Depends(get_db), actor: Actor | None = Depends(admin_actor)):
+    user = db.get(User, body.user_id)
+    if not user or user.tenant_id != tenant_id or user.role != "member":
+        raise HTTPException(404, "Member not found in this community.")
+    report = db.get(Report, body.report_id) if body.report_id else None
+    if body.report_id and (not report or report.tenant_id != tenant_id or report.reported_id != user.id):
+        raise HTTPException(404, "Report not found for this member.")
+    s = db.get(Suspension, user.id) or Suspension(user_id=user.id, tenant_id=tenant_id)
+    s.reason, s.report_id, s.suspended_by = body.reason.strip(), body.report_id, actor.user.id if actor else None
+    db.add(s)
+    if report:
+        report.status = "reviewed"
+    T.alert(db, user.id, "account", "Your account is paused",
+            "Your community's organiser has paused your account: you can't post or book new rides for now."
+            + (f" Reason: {s.reason}" if s.reason else ""))
+    db.commit()
+    return _suspension_out(db, s)
+
+
+@router.delete("/tenants/{tenant_id}/suspensions/{user_id}", summary="Organiser: lift a pause; the member gets an alert")
+def unsuspend(tenant_id: int, user_id: int, db: Session = Depends(get_db), _: Actor | None = Depends(admin_actor)):
+    s = db.get(Suspension, user_id)
+    if not s or s.tenant_id != tenant_id:
+        raise HTTPException(404, "This member isn't paused.")
+    db.delete(s)
+    T.alert(db, user_id, "account", "Your account is active again", "You can post and book rides again.")
+    db.commit()
+    return {"ok": True}
 
 
 def _rates_out(r: pricing.Rates) -> dict:
@@ -323,10 +380,10 @@ def _rates_out(r: pricing.Rates) -> dict:
 def _pricing_out(db: Session, tenant_id: int, admin: bool) -> dict:
     history = T.pricing_history(db, tenant_id)
     out = {**_rates_out(T.current_rates(db, tenant_id)), "defaults": _rates_out(pricing.DEFAULT),
-           "changed_at": history[-1].created_at if history else None}
+           "changed_at": T.utc(history[-1].created_at).isoformat() if history else None}
     if admin:
         names = {u.id: u.email for u in db.scalars(select(User).where(User.id.in_({h.changed_by for h in history if h.changed_by})))}
-        out["history"] = [{**_rates_out(T.rates_from(h)), "changed_at": h.created_at, "changed_by": names.get(h.changed_by)}
+        out["history"] = [{**_rates_out(T.rates_from(h)), "changed_at": T.utc(h.created_at).isoformat(), "changed_by": names.get(h.changed_by)}
                           for h in reversed(history[-10:])]
     return out
 
@@ -346,6 +403,11 @@ def set_pricing(tenant_id: int, body: PricingIn, db: Session = Depends(get_db), 
                             changed_by=actor.user.id if actor else None))
     db.commit()
     return _pricing_out(db, tenant_id, True)
+
+
+@router.get("/tenants/{tenant_id}/live", summary="Organiser: rides on the road now (a demo community replays its latest rides, marked simulated)")
+def live_rides(tenant_id: int, db: Session = Depends(get_db), _: Actor | None = Depends(admin_actor)):
+    return live.live(db, db.get(Tenant, tenant_id))
 
 
 @router.get("/tenants/{tenant_id}/trips-overview", summary="Organiser: rides, ratings and reports in the member app")

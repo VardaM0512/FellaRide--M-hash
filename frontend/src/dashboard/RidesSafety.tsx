@@ -1,9 +1,9 @@
 // Rides & safety: what's happening in the member app (rides, ratings, penalties) and the reports queue.
-import { useState } from 'react';
+import { useState, type FormEvent } from 'react';
 import { useMetrics } from '../api/hooks';
-import { useReviewReport, useTripsOverview } from '../api/organiser';
+import { useReviewReport, useSuspend, useSuspensions, useTripsOverview } from '../api/organiser';
 import { Avatar, CountUp, ErrorNote, Skeleton } from '../components/ui';
-import { ago } from '../lib/format';
+import { ago, firstName } from '../lib/format';
 
 const CATEGORY: Record<string, string> = { safety: 'Safety', fraud: 'Money or identity', reliability: 'Reliability', conduct: 'Behaviour', other: 'Other' };
 const SEVERITY: Record<string, string> = { high: 'High', medium: 'Medium', low: 'Low' };
@@ -14,6 +14,10 @@ export default function RidesSafety() {
   const src = useMetrics().data?.by_source;
   const [status, setStatus] = useState<'open' | 'reviewed' | 'all'>('open');
   const [cat, setCat] = useState<string | null>(null);
+  const [pausing, setPausing] = useState<{ reportId: number; reason: string } | null>(null);
+  const susp = useSuspensions();
+  const { pause, lift } = useSuspend();
+  const paused = new Set((susp.data || []).map((s) => s.id));
   const d = ov.data;
   if (!d) return ov.error ? <ErrorNote error={ov.error} onRetry={() => ov.refetch()} /> : <Skeleton h={420} />;
   const t = d.trips;
@@ -28,6 +32,10 @@ export default function RidesSafety() {
   ];
   const reports = d.reports.filter((r) => (status === 'all' || r.status === status) && (!cat || r.category === cat));
   const openCount = d.reports.filter((r) => r.status === 'open').length;
+  function confirmPause(e: FormEvent, userId: number) {
+    e.preventDefault();
+    if (pausing) pause.mutate({ user_id: userId, reason: pausing.reason.trim(), report_id: pausing.reportId }, { onSuccess: () => setPausing(null) });
+  }
 
   return (
     <>
@@ -70,17 +78,52 @@ export default function RidesSafety() {
                     <span><strong>{r.reported.name}</strong><span className="small muted">reported by {r.reporter.name}</span></span>
                   </div>
                   <p className="small">{r.reasons.join(' · ')}{r.note ? ` — “${r.note}”` : ''}</p>
-                  {r.status === 'open'
-                    ? <button className="btn btn-quiet btn-small" style={{ justifySelf: 'start' }} disabled={review.isPending} onClick={() => review.mutate(r.id)}>Mark reviewed</button>
-                    : <span className="small muted">Reviewed</span>}
+                  {pausing?.reportId === r.id ? (
+                    <form className="pause-form" onSubmit={(e) => confirmPause(e, r.reported.id)}>
+                      <label className="field">Reason {firstName(r.reported.name)} will see
+                        <input value={pausing.reason} onChange={(e) => setPausing({ ...pausing, reason: e.target.value })} maxLength={200} />
+                      </label>
+                      <p className="small muted">They can’t post or book new rides until you lift it. Rides already under way carry on.</p>
+                      <div className="report-actions">
+                        <button className="btn btn-small btn-danger" disabled={pause.isPending}>{pause.isPending ? 'Pausing…' : `Pause ${firstName(r.reported.name)}`}</button>
+                        <button type="button" className="btn btn-quiet btn-small" onClick={() => setPausing(null)}>Cancel</button>
+                      </div>
+                    </form>
+                  ) : (
+                    <div className="report-actions">
+                      {r.status === 'open'
+                        ? <button className="btn btn-quiet btn-small" disabled={review.isPending} onClick={() => review.mutate(r.id)}>Mark reviewed</button>
+                        : <span className="small muted">Reviewed</span>}
+                      {paused.has(r.reported.id)
+                        ? <span className="paused-pill">Account paused</span>
+                        : <button className="btn btn-quiet btn-small" onClick={() => setPausing({ reportId: r.id, reason: `${CATEGORY[r.category] || 'A'} report: ${r.reasons[0] ?? 'see the report'}` })}>Pause account</button>}
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>
           )}
-          <ErrorNote error={review.error} />
+          <ErrorNote error={review.error || pause.error} />
         </section>
 
         <div className="stack-lg">
+          <section className="panel" aria-labelledby="paused-h">
+            <div className="section-head"><h2 id="paused-h">Paused accounts</h2>{!!susp.data?.length && <span className="chip">{susp.data.length}</span>}</div>
+            {!susp.data ? <Skeleton h={60} /> : susp.data.length === 0 ? (
+              <p className="small muted">No one is paused. Pause someone from a report: they can’t post or book rides until you lift it.</p>
+            ) : (
+              <ul className="paused-list">
+                {susp.data.map((s) => (
+                  <li key={s.id}>
+                    <Avatar name={s.name} />
+                    <span><strong>{s.name}</strong><span className="small muted">{s.reason || 'No reason given'} · {ago(s.since)} · {s.reports} report{s.reports === 1 ? '' : 's'}</span></span>
+                    <button className="btn btn-quiet btn-small" disabled={lift.isPending} onClick={() => lift.mutate(s.id)}>Lift</button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <ErrorNote error={lift.error} />
+          </section>
           <section className="panel" aria-labelledby="src-h">
             <h2 id="src-h">Where rides come from</h2>
             {src ? (

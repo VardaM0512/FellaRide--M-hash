@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..engine import daycycle, metrics, scorer
+from ..engine import trips as T
 from ..engine.context import FEATURES
 from ..models import Event, Member, Tenant
 from ..schemas import CompareIn, SimulateIn
@@ -12,6 +13,7 @@ from ..sim.behaviour import SimulationError, simulate
 from ..sim.synthetic import DEMO_NAME, create_synthetic_tenant
 from ..auth import Actor, admin_actor, require_admin_global
 from .deps import get_tenant
+from .social import CO2_KG_PER_KM, TREE_KG_PER_YEAR, _rides
 
 router = APIRouter(tags=["insights"])
 
@@ -50,10 +52,49 @@ def activity(tenant: Tenant = Depends(get_tenant), db: Session = Depends(get_db)
                       .where(Event.tenant_id == tenant.id, Event.type.in_(FEED_TYPES))
                       .order_by(Event.id.desc()).limit(limit)).all()
     keep = ("via", "rating", "kind", "area", "how")
-    return [{"id": e.id, "day": e.day, "type": e.type, "at": e.created_at,
+    return [{"id": e.id, "day": e.day, "type": e.type, "at": T.utc(e.created_at).isoformat(),
              "member": {"id": e.member_id, "name": name} if e.member_id else None,
              "source": (e.payload or {}).get("source", "engine"),
              "detail": {k: v for k, v in (e.payload or {}).items() if k in keep}} for e, name in rows]
+
+
+@router.get("/tenants/{tenant_id}/impact", summary="Organiser: what sharing rides has saved: CO2, km, money, by day and by route")
+def community_impact(tenant: Tenant = Depends(get_tenant), db: Session = Depends(get_db), _: Actor | None = Depends(admin_actor)):
+    rides = _rides(db, tenant)
+    rates = T.current_rates(db, tenant.id)
+    seat_km = sum(r.km * len(r.riders) for r in rides)
+    people = {r.driver for r in rides} | {x for r in rides for x in r.riders}
+    # day by day, running totals (every day up to today, so quiet days show as flat)
+    per_day: dict[int, float] = {}
+    for r in rides:
+        per_day[r.day] = per_day.get(r.day, 0.0) + r.km * len(r.riders)
+    running, series = 0.0, []
+    for d in range(0, max([tenant.current_day, *per_day]) + 1):
+        running += per_day.get(d, 0.0)
+        series.append({"day": d, "co2_kg": round(running * CO2_KG_PER_KM, 1), "km": round(running)})
+    # by route: the driver's neighbourhood to the destination
+    drivers = {m.id: m for m in db.scalars(select(Member).where(Member.id.in_({r.driver for r in rides})))} if rides else {}
+    routes: dict[tuple[str, str], dict] = {}
+    for r in rides:
+        m = drivers.get(r.driver)
+        if not m:
+            continue
+        k = (m.area, m.destination.name if m.destination else "")
+        row = routes.setdefault(k, {"from": k[0], "to": k[1], "rides": 0, "seats": 0, "km": 0.0})
+        row["rides"] += 1
+        row["seats"] += len(r.riders)
+        row["km"] += r.km * len(r.riders)
+    top = sorted(routes.values(), key=lambda x: -x["km"])[:6]
+    return {
+        "rides": len(rides), "seats": sum(len(r.riders) for r in rides), "people": len(people),
+        "km_shared": round(seat_km), "co2_kg": round(seat_km * CO2_KG_PER_KM),
+        "trees_year": round(seat_km * CO2_KG_PER_KM / TREE_KG_PER_YEAR, 1),
+        "money_saved": round(seat_km * rates.car_cost_per_km),
+        "series": series,
+        "routes": [{**x, "km": round(x["km"]), "co2_kg": round(x["km"] * CO2_KG_PER_KM, 1)} for x in top],
+        "assumptions": {"co2_kg_per_km": CO2_KG_PER_KM, "tree_kg_per_year": TREE_KG_PER_YEAR, "car_cost_per_km": rates.car_cost_per_km},
+        "synthetic": tenant.is_synthetic,
+    }
 
 
 @router.get("/tenants/{tenant_id}/model", summary="Current propensity-model weights (learned online)")

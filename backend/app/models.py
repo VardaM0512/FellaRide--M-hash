@@ -544,6 +544,19 @@ class Broadcast(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
+class Suspension(Base):
+    """The organiser paused this member: no new rides (posting or asking for a seat) until it's lifted. Rides already
+    under way carry on, so nobody is left stranded."""
+
+    __tablename__ = "suspensions"
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    reason: Mapped[str] = mapped_column(String(200), default="")
+    report_id: Mapped[int | None] = mapped_column(ForeignKey("reports.id", ondelete="SET NULL"), nullable=True)
+    suspended_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
 # ---------- Community board: posts, reactions and comments ----------
 # Authored by a login (user). Seeded demo posts come from synthetic members who have no login, so user_id is
 # optional and the author's name is kept with the post.

@@ -259,6 +259,12 @@ class BroadcastIn(BaseModel):
         "all", description="everyone; members with a car saved; members without one; or members who haven't shared a ride yet")
 
 
+class SuspendIn(BaseModel):
+    user_id: int
+    reason: str = Field("", max_length=200, description="Shown to the member")
+    report_id: int | None = Field(None, description="The report this acts on; it is marked reviewed")
+
+
 class PricingIn(BaseModel):
     suggested_per_km: float = Field(gt=0, le=100, description="Rs per km a rider travels, before the no-profit cap")
     car_cost_per_km: float = Field(gt=0, le=100, description="What a car costs to run per km (fuel and wear): the no-profit cap")

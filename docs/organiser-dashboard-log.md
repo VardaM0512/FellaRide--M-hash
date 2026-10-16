@@ -161,3 +161,113 @@ Unchanged in content. They now sit inside the new shell, so their own headers an
 - **Demo announcements may reach nobody.** Announcements go to members who have the app. In the demo community, a synthetic member only has the app once someone has signed in as them, so the audiences can be 0. The page says so.
 - **Rides & safety counts member-app rides only.** The demo community's rides come mostly from the engine, so these tiles start near zero there. The Overview and the map include engine rides.
 - **Small screens:** on phones, the members table scrolls sideways, and the map's zoom buttons are hidden (pinch to zoom).
+
+---
+
+# Round 2: impact, pausing a member, read rates
+
+**Date:** 16 October 2026 · **Branch:** `fix` (local, not committed yet)
+
+I chose three additions because each is easy to show and explain, and each lives in one place, so nothing gets cluttered.
+
+## 1. Impact page (`/dashboard/impact`, new station under Community)
+
+- **Headline:** the CO₂ kept out of the air, as one large brass number, plus how many people and rides it took.
+- **Four equivalents:**
+  - trees' work for a year
+  - km not driven alone
+  - car trips avoided
+  - money not spent on solo trips (at the car running cost set on the Pricing page)
+- **CO₂ saved, day by day:** a running total. Hover, or use the arrow keys, to read any day. There is also a table view.
+- **Where it comes from:** the top routes by km shared.
+- **How we count:** the assumptions, stated plainly (0.12 kg CO₂ per km, 21 kg per tree per year, ₹ per km from Pricing). These are estimates.
+- **Download report:** prints a clean PDF with the community name and date. The sidebar, top bar and buttons are left off.
+- **API:** `GET /tenants/{t}/impact`. It counts engine and app rides the same way as the member app's community numbers.
+
+## 2. Pause a member from a report (Rides & safety)
+
+- **On every report card:** "Pause account". The reason the member will see is pre-filled from the report, and you can edit it.
+- **What it does:**
+  - the member can't post a ride or ask for a seat until the pause is lifted
+  - rides already under way carry on, so nobody is left stranded
+  - the member gets an alert with the reason, and another when the pause is lifted
+  - the report is marked reviewed
+- **"Paused accounts" panel:** who is paused, why, since when, how many reports they have, and a Lift button.
+- **API:**
+  - `GET /tenants/{t}/suspensions`
+  - `POST /tenants/{t}/suspensions` (`user_id`, `reason`, optional `report_id`)
+  - `DELETE /tenants/{t}/suspensions/{user_id}`
+- **New table:** `suspensions`. The server creates it on startup.
+
+## 3. Read rates on announcements
+
+- Each sent announcement now shows "N of M read" with a thin bar.
+- `GET /tenants/{t}/broadcasts` returns `read` for each announcement.
+
+## Fixes along the way
+
+- **Times shown in the wrong zone:** times from the new organiser endpoints (activity, announcements, paused since, pricing history) are now sent in UTC with the zone attached. Before, SQLite returned times without a zone, so the browser read them as local time and "just now" showed as "6 h ago".
+
+## Checks run
+
+- **Backend tests:** 92 passed, including 3 new ones (impact totals, the pause and lift flow, the read count).
+- **Frontend:** the typecheck and production build pass.
+- **Running app:** checked in Chrome on a local demo database, in a scenario where one member reports another, the organiser pauses them, and an announcement is read by one of its two recipients. Also checked: the Impact page at desktop and phone width, the chart's hover, and the printed PDF. There were no console errors.
+
+---
+
+# Round 3: Live rides
+
+**Date:** 16 October 2026 · **Branch:** `fix` (local, not committed yet)
+
+A new **Live rides** page (`/dashboard/live`), the first station under "Run it". It shows every ride on the road right now.
+
+- **On the map:**
+  - cars move along real roads (OpenStreetMap routing) every second
+  - the stretch already driven turns blue
+  - pickup dots disappear once the car has collected that rider
+  - destinations are drawn as diamonds
+- **The list beside the map:** one card per ride, with:
+  - the driver and their route
+  - a status line, such as "Leaves Lakeview in 25 min", "Picking up Rahul" or "3 on board · arriving at Main Campus · 4 min"
+  - a progress bar
+  - the riders, which turn blue once picked up
+  - a tag: Simulated, Live GPS, Estimated or Soon
+  - clicking a card flies the map to that car
+- **The sidebar station** shows how many rides are on the road.
+
+## Real and simulated rides
+
+- **Real communities:** member-app rides that have set off, or leave within 30 minutes. A car sits at the driver's live position when they share it (less than 5 minutes old). Otherwise its position is estimated from the departure time and the route's duration.
+- **The demo community has nobody really driving.** So the board replays the engine's most recent completed rides (up to 8) on a 10-minute loop:
+  - each car leaves the driver's home and picks up its riders, nearest first, then drives to the destination
+  - the cars are staggered, so some are always on the road
+  - a banner says "Simulated live rides", and every simulated card is tagged "Simulated"
+  - positions come from the server's clock, so everyone watching sees the cars in the same places
+- **API:** `GET /tenants/{t}/live` (organisers only). It returns real rides and, on synthetic communities, the simulated replay, each ride tagged `kind: app` or `kind: simulated`.
+
+## Checks run
+
+- **Backend tests:** 93 passed. The new test covers the demo replay (waypoints, staggering, timing) and real rides (leaving soon is listed, 3 hours away is not, an under-way ride shows the live position, members get 403).
+- **Running app:** checked in Chrome at desktop and phone width, light and dark. Statuses advanced live (for example, "Picking up Rahul" became "1 on board"). There were no console errors.
+
+## Round 3 update: the Live rides page as a control room
+
+The first version looked too plain, so the page was restyled to be worth watching. It keeps the app's blue and brass, and the reduce-motion setting still turns the animations off.
+
+- **The live band:** a dark card over slowly drifting blue, brass and green gradients, with a blinking LIVE pill. It shows four animated figures: on the road, riders on board, km shared so far, and **CO₂ saved by these rides**, which ticks up live in a gradient colour.
+- **The map:**
+  - it always uses a dark basemap, with a soft vignette at the edges, so the colours glow
+  - each car leaves a **comet trail** that fades from Fella Blue to brass, with a soft glow at its head
+  - the road still to drive shows as **flowing dashes**
+  - the cars are brass, with a breathing halo and an arrow pointing the way they're heading; the selected car turns blue and an arrived car turns green
+  - waiting riders pulse; when a car picks someone up, a **"+1" burst** appears and the rider's dot shrinks away
+  - destinations send out rings, and a **✓ burst** marks each arrival
+- **Running feed:** pickups and arrivals slide in at the bottom-left of the map (for example, "Divya picked up Nikhil").
+- **Auto tour:** the camera flies to each car in turn every 9 seconds and follows it, which is handy for presenting. "Show all" zooms back out, and dragging the map stops the tour.
+- **Cards:**
+  - the selected card gets a gradient border
+  - progress bars are a gradient with a shimmer
+  - status lines slide when they change
+  - rider chips pop and gain a gradient edge when someone is picked up
+  - a card glows green when its car arrives
