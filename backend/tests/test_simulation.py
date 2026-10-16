@@ -46,3 +46,23 @@ def test_demo_community_is_seeded_for_evaluators(client):
     h = bearer(s["token"])
     assert client.get(f"{API}/tenants/{demo['id']}/members/{people[0]['id']}", headers=h).status_code == 200
     assert client.get(f"{API}/tenants/{demo['id']}/metrics", headers=h).status_code == 403
+
+
+def test_synthetic_clock_is_manual_and_says_so(client):
+    """Bug report: the demo looked frozen. Its timeline is the simulator's (it moves with Next day / Simulate, never
+    with the calendar, see daycycle.catch_up), and the API now says so, so the dashboard can label it."""
+    from datetime import timedelta
+
+    from app.db import SessionLocal
+    from app.models import Tenant
+    demo = client.get(f"{API}/tenants").json()[0]
+    assert demo["synthetic"] and demo["clock"] == "manual"
+    with SessionLocal() as db:   # three calendar days pass
+        t = db.get(Tenant, demo["id"])
+        t.created_at = t.created_at - timedelta(days=3)
+        db.commit()
+    again = client.get(f"{API}/tenants/{demo['id']}").json()
+    assert again["current_day"] == demo["current_day"] and again["clock"] == "manual"
+    # only the organiser's Next day moves it
+    k = client.post(f"{API}/tenants/{demo['id']}/day/close", headers=demo_admin(client)).json()
+    assert k["current_day"] == demo["current_day"] + 1

@@ -444,6 +444,20 @@ class TripPrice(Base):
     per_km: Mapped[float] = mapped_column(Float)
 
 
+class CommunityPricing(Base):
+    """The organiser's cost-sharing rates for a community, one row per change (the latest is in force). A ride keeps
+    the rates in force when it was posted, so a change never reprices a ride already posted. No row = pricing.DEFAULT."""
+
+    __tablename__ = "community_pricing"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    suggested_per_km: Mapped[float] = mapped_column(Float)     # Rs per km a rider travels
+    car_cost_per_km: Mapped[float] = mapped_column(Float)      # what the car costs to run: the no-profit cap
+    min_contribution: Mapped[int] = mapped_column(Integer)     # Rs per seat
+    changed_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
 class PayoutInfo(Base):
     """Where riders can send a driver their contribution: a UPI ID. FellaRide never handles the money."""
 
@@ -513,6 +527,20 @@ class Alert(Base):
     body: Mapped[str] = mapped_column(String(400), default="")
     trip_id: Mapped[int | None] = mapped_column(ForeignKey("trips.id", ondelete="CASCADE"), nullable=True)
     read: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class Broadcast(Base):
+    """A notification the organiser sent to members (each person gets an Alert); kept so the dashboard can list them."""
+
+    __tablename__ = "broadcasts"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    title: Mapped[str] = mapped_column(String(160))
+    body: Mapped[str] = mapped_column(String(400), default="")
+    audience: Mapped[str] = mapped_column(String(12), default="all")   # all | drivers | riders | new
+    sent: Mapped[int] = mapped_column(Integer, default=0)
+    sent_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 

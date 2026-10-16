@@ -46,6 +46,42 @@ def test_signup_without_code_and_login_by_mobile(client):
     assert bad.status_code == 404
 
 
+def test_profile_update_valid_and_invalid_input(client):
+    _, h, _ = signup(client, "Ravi K.", gender="male")
+    _, _, os_ = signup(client, "Asha P.")
+    put = lambda body, hh=h: client.put(f"{API}/me/profile", headers=hh, json=body)
+
+    # a valid update is saved, trimmed and normalised
+    ok = put({"name": "  Ravi Kumar ", "gender": "male", "mobile": "98765 43210"})
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["name"] == "Ravi Kumar" and ok.json()["mobile"] == "+919876543210"
+
+    # bad input is a 422 with a sentence a person can act on, never our regex or their input echoed back
+    cases = {
+        "blank name": ({"name": "   ", "gender": "male", "mobile": "98765 43210"}, "name", "at least 2"),
+        "1-letter name after trimming": ({"name": " A ", "gender": "male", "mobile": "98765 43210"}, "name", "at least 2"),
+        "markup in name": ({"name": "Ravi/<b>", "gender": "male", "mobile": "98765 43210"}, "name", "letters and spaces"),
+        "brackets in mobile": ({"name": "Ravi", "gender": "male", "mobile": "(987) 654-3210"}, "mobile", "valid mobile"),
+        "unknown gender": ({"name": "Ravi", "gender": "robot", "mobile": "98765 43210"}, "gender", "one of the options"),
+    }
+    for label, (body, field, words) in cases.items():
+        r = put(body)
+        assert r.status_code == 422, label
+        [err] = r.json()["detail"]
+        assert err["loc"][-1] == field and words in err["msg"], (label, err)
+        assert "input" not in err and "pattern" not in err["msg"], (label, err)
+    assert put({"name": "Ravi", "gender": "male", "mobile": "+91 12345 67890"}).json()["detail"].startswith("Enter a valid mobile")
+    assert put({"name": "Ravi", "gender": "male"}).status_code == 422
+
+    # someone else's number is refused, and nothing above changed the saved profile
+    assert put({"name": "Ravi", "gender": "male", "mobile": os_["profile"]["mobile"]}).status_code == 409
+    me = client.get(f"{API}/auth/me", headers=h).json()
+    assert me["profile"]["name"] == "Ravi Kumar" and me["profile"]["mobile"] == "+919876543210"
+
+    # no token, no update
+    assert client.put(f"{API}/me/profile", json={"name": "Ravi", "gender": "male", "mobile": "98765 43210"}).status_code == 401
+
+
 def test_full_trip(client):
     d, dh, _ = signup(client, "Asha D.")
     r1, h1, _ = signup(client, "Rohan R.", "male")
@@ -184,6 +220,23 @@ def test_organiser_broadcast_and_overview(client, community):
     assert client.post(f"{API}/tenants/{tid}/broadcast", headers=h, json={"title": "spam"}).status_code == 403
     ov = client.get(f"{API}/tenants/{tid}/trips-overview", headers=admin).json()
     assert {"trips", "riders_carried", "reports", "open_reports_by_category"} <= set(ov)
+
+
+def test_a_ride_must_go_somewhere(client):
+    _, dh, _ = signup(client, "Zara Z.")
+    when = (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat()
+    base = {"from_name": "Lakeview", "from_lat": 12.97, "from_lon": 77.55, "depart_at": when, "route_min": 25,
+            "seats": 2, "licence_confirmed": True, "cost_share_confirmed": True}
+    # same start and destination: a 0 km route
+    same = client.post(f"{API}/trips", headers=dh, json={**base, "to_name": "Lakeview", "to_lat": 12.97, "to_lon": 77.55,
+                                                          "route": [[12.97, 77.55], [12.97, 77.55]], "route_km": 0, "route_min": 0})
+    assert same.status_code == 422 and "same place" in same.json()["detail"]
+    # different places, but a route claimed shorter than the straight line between them (~10.8 km)
+    short = client.post(f"{API}/trips", headers=dh, json={**base, "to_name": "Tech Park", "to_lat": 12.97, "to_lon": 77.65,
+                                                           "route": ROUTE, "route_km": 0})
+    assert short.status_code == 422
+    real = post_trip(client, dh)   # neither left a ride behind, so a real one can still be posted
+    client.post(f"{API}/trips/{real['id']}/cancel", headers=dh)   # keep it out of later tests' searches
 
 
 def test_car_details_model_first_plate_after_approval(client):
@@ -372,6 +425,42 @@ def test_cost_sharing_contribution_cap_and_settling_up(client):
     assert pricing.per_seat(0, 10, 10, 3) == 0
     client.post(f"{API}/trips/{tid}/withdraw", headers=rh)
     client.post(f"{API}/trips/{tid}/cancel", headers=dh)
+
+
+def test_organiser_changes_rates_for_new_rides_only(client, community):
+    org = community["admin_headers"]
+    tid_ = community["id"]
+    _, dh1, _ = signup(client, "Rates D1.", join_code=community["join_code"])
+    _, dh2, _ = signup(client, "Rates D2.", join_code=community["join_code"])
+    _, rh, _ = signup(client, "Rates R.", join_code=community["join_code"])
+    _, oh, _ = signup(client, "Elsewhere O.")   # the open community
+
+    # members see the defaults; only the organiser sees who changed what
+    seen = client.get(f"{API}/tenants/{tid_}/pricing", headers=rh).json()
+    assert (seen["suggested_per_km"], seen["car_cost_per_km"], seen["min_contribution"]) == (3, 9, 30) and "history" not in seen
+    assert client.get(f"{API}/tenants/{tid_}/pricing", headers=oh).status_code == 404
+    old = post_trip(client, dh1)
+    assert old["price"]["per_km"] == 3 and old["price"]["max_per_km"] == 4.5
+
+    # only the organiser can change them, and the suggested rate can't beat the car's cost
+    new = {"suggested_per_km": 4, "car_cost_per_km": 12, "min_contribution": 50}
+    assert client.put(f"{API}/tenants/{tid_}/pricing", headers=rh, json=new).status_code == 403
+    assert client.put(f"{API}/tenants/{tid_}/pricing", headers=org, json={**new, "suggested_per_km": 13}).status_code == 422
+    assert client.put(f"{API}/tenants/{tid_}/pricing", headers=org, json={**new, "car_cost_per_km": 0}).status_code == 422
+    put = client.put(f"{API}/tenants/{tid_}/pricing", headers=org, json=new)
+    assert put.status_code == 200, put.text
+    assert put.json()["car_cost_per_km"] == 12 and put.json()["history"][0]["changed_by"].startswith("admin")
+    assert client.get(f"{API}/tenants/{tid_}/pricing", headers=rh).json()["min_contribution"] == 50
+
+    # a ride posted now uses the new rates: cap 12 / 2 seats = Rs 6/km, Rs 50 minimum
+    t = post_trip(client, dh2)
+    assert t["price"]["per_km"] == 4 and t["price"]["max_per_km"] == 6 and t["price"]["trip_cost"] == round(12 * 11.2)
+    found = client.get(f"{API}/trips/search", headers=rh, params={"from_lat": 12.97, "from_lon": 77.60, "to_lat": 12.97, "to_lon": 77.65}).json()
+    assert next(x for x in found if x["id"] == t["id"])["per_seat"] == 50
+    assert next(x for x in found if x["id"] == old["id"])["per_seat"] == 30   # the ride posted before keeps its price
+    assert client.get(f"{API}/trips/{old['id']}", headers=dh1).json()["price"]["max_per_km"] == 4.5
+    client.post(f"{API}/trips/{old['id']}/cancel", headers=dh1)
+    client.post(f"{API}/trips/{t['id']}/cancel", headers=dh2)
 
 
 def test_parallel_approvals_of_the_last_seat_approve_exactly_one(client):

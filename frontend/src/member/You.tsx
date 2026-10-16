@@ -7,6 +7,7 @@ import { saveProfile, shareLocation, useMyTrips, useReferrals, type Gender } fro
 import { useImpact, type Badge } from '../api/community';
 import { Avatar, CountUp, ErrorNote, Icon, Skeleton } from '../components/ui';
 import { notificationsSupported } from '../lib/notify';
+import { mobileError } from '../lib/format';
 import { currentPosition } from '../lib/places';
 import { useSession } from '../lib/session';
 import { GENDER_LABEL, GENDER_OPTIONS, carText, ratingText } from '../lib/tripFormat';
@@ -18,9 +19,12 @@ export function ProfileForm({ onSaved, submitLabel = 'Save' }: { onSaved?: () =>
   const [f, setF] = useState({ name: p?.name || session?.member?.name || '', gender: (p?.gender || '') as Gender | '', mobile: p?.mobile || '' });
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
+  const [mobileLeft, setMobileLeft] = useState(false);
+  const mobileErr = mobileLeft ? mobileError(f.mobile) : null;
   async function submit(e: FormEvent) {
     e.preventDefault();
     if (!f.gender) return setError(new Error('Choose how you’d like your gender shown.'));
+    if (mobileError(f.mobile)) return setMobileLeft(true);
     setBusy(true); setError(null);
     try {
       const profile = await saveProfile({ name: f.name.trim(), gender: f.gender, mobile: f.mobile.trim() });
@@ -38,8 +42,8 @@ export function ProfileForm({ onSaved, submitLabel = 'Save' }: { onSaved?: () =>
           ))}
         </div>
       </div>
-      <label className="field">Mobile number<input type="tel" inputMode="tel" value={f.mobile} onChange={(e) => setF({ ...f, mobile: e.target.value })} placeholder="+91 98765 43210" required />
-        <span className="hint">Only people in the same ride see it, so you can call each other.</span></label>
+      <label className="field">Mobile number<input type="tel" inputMode="tel" value={f.mobile} onChange={(e) => setF({ ...f, mobile: e.target.value })} onBlur={() => setMobileLeft(true)} placeholder="+91 98765 43210" required aria-invalid={!!mobileErr} />
+        {mobileErr ? <span className="field-error" role="alert">{mobileErr}</span> : <span className="hint">Only people in the same ride see it, so you can call each other.</span>}</label>
       <ErrorNote error={error} />
       <button className="btn btn-primary btn-block" disabled={busy || !f.name || !f.mobile}>{busy ? 'Saving…' : submitLabel}</button>
     </form>

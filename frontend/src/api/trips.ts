@@ -1,5 +1,6 @@
 // Member app API (Sprint 3): profile, trips, seat requests, chat, ratings, reports, alerts.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { Rates } from '../lib/pricing';
 import { useSession } from '../lib/session';
 import { request } from './client';
 
@@ -49,7 +50,7 @@ export interface Trip {
 }
 
 export interface Payment { rider_paid: boolean; driver_got: boolean }
-export interface Price { per_km: number; free: boolean; suggested_per_km: number; max_per_km: number; trip_cost: number; full_route_per_seat: number }
+export interface Price { per_km: number; free: boolean; suggested_per_km: number; max_per_km: number; trip_cost: number; min_contribution: number; full_route_per_seat: number }
 
 export interface LivePosition {
   user_id: number; role: 'driver' | 'rider'; name: string; lat: number; lon: number; heading: number | null; age_s: number;
@@ -125,6 +126,16 @@ function useTripAction<V, R = unknown>(fn: (v: V) => Promise<R>) {
     onSuccess: () => ['trips', 'alerts', 'chat'].forEach((k) => qc.invalidateQueries({ queryKey: [k] })),
   });
 }
+
+/** The community's cost-sharing rates, set by the organiser (history: organisers only). */
+export interface CommunityPricing extends Rates {
+  defaults: Rates; changed_at: string | null;
+  history?: (Rates & { changed_at: string; changed_by: string | null })[];
+}
+export const useRates = () => {
+  const id = useSession().session?.tenant.id;
+  return useQuery({ queryKey: ['pricing', id], queryFn: () => request<CommunityPricing>(`/tenants/${id}/pricing`), enabled: !!id });
+};
 
 export const usePostTrip = () => useTripAction((body: TripInput) => request<Trip>('/trips', { method: 'POST', body }));
 export const useTripStep = () => useTripAction(({ tripId, path, body }: { tripId: number; path: string; body?: unknown }) =>

@@ -10,12 +10,12 @@ from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from ..auth import Actor, admin_actor, auth_rate_limit, current_actor
+from ..auth import Actor, admin_actor, auth_rate_limit, current_actor, member_actor
 from ..db import get_db
-from ..engine import activation, referrals
+from ..engine import activation, pricing, referrals
 from ..engine import trips as T
-from ..models import Alert, Member, Profile, Rating, Referral, Report, Tenant, Trip, TripSeat, User
-from ..schemas import BroadcastIn, InviteIn, LocationIn, MessageIn, ProfileIn, RatingIn, ReadIn, ReportIn, SeatRequestIn, TrackIn, TripIn, UpiIn
+from ..models import Alert, Broadcast, Car, CommunityPricing, Member, Profile, Rating, Referral, Report, Tenant, Trip, TripSeat, User
+from ..schemas import BroadcastIn, InviteIn, LocationIn, MessageIn, PricingIn, ProfileIn, RatingIn, ReadIn, ReportIn, SeatRequestIn, TrackIn, TripIn, UpiIn
 from .account import checked_mobile, email_verified, mobile_owner, verification_required
 
 router = APIRouter(tags=["trips"])
@@ -283,12 +283,69 @@ def report(body: ReportIn, user: User = Depends(rider_or_driver), db: Session = 
 
 # ---------- organiser ----------
 @router.post("/tenants/{tenant_id}/broadcast", status_code=201, summary="Organiser: send a notification to every member")
-def broadcast(tenant_id: int, body: BroadcastIn, db: Session = Depends(get_db), _: Actor | None = Depends(admin_actor)):
-    ids = list(db.scalars(select(User.id).where(User.tenant_id == tenant_id, User.role == "member")))
+def broadcast(tenant_id: int, body: BroadcastIn, db: Session = Depends(get_db), actor: Actor | None = Depends(admin_actor)):
+    ids = audience_ids(db, tenant_id, body.audience)
     for uid in ids:
         T.alert(db, uid, "broadcast", body.title, body.body)
+    db.add(Broadcast(tenant_id=tenant_id, title=body.title, body=body.body, audience=body.audience, sent=len(ids),
+                     sent_by=actor.user.id if actor else None))
     db.commit()
     return {"sent": len(ids)}
+
+
+def audience_ids(db: Session, tenant_id: int, audience: str) -> list[int]:
+    """Members of the community a broadcast goes to. Drivers: a car saved in the app."""
+    members = select(User.id).where(User.tenant_id == tenant_id, User.role == "member")
+    drivers = select(Car.user_id)
+    if audience == "drivers":
+        members = members.where(User.id.in_(drivers))
+    elif audience == "riders":
+        members = members.where(User.id.not_in(drivers))
+    elif audience == "new":   # hasn't shared a ride yet, either side
+        rode = select(TripSeat.rider_id).where(TripSeat.status.in_(("boarded", "dropped")))
+        drove = select(Trip.driver_id).where(Trip.status.in_(("started", "completed")))
+        members = members.where(User.id.not_in(rode), User.id.not_in(drove))
+    return list(db.scalars(members))
+
+
+@router.get("/tenants/{tenant_id}/broadcasts", summary="Organiser: notifications sent to members, newest first, and audience sizes")
+def broadcasts(tenant_id: int, db: Session = Depends(get_db), _: Actor | None = Depends(admin_actor)):
+    rows = db.scalars(select(Broadcast).where(Broadcast.tenant_id == tenant_id).order_by(Broadcast.id.desc()).limit(30))
+    return {"audiences": {a: len(audience_ids(db, tenant_id, a)) for a in ("all", "drivers", "riders", "new")},
+            "sent": [{"id": b.id, "title": b.title, "body": b.body, "audience": b.audience, "sent": b.sent,
+                      "created_at": b.created_at} for b in rows]}
+
+
+def _rates_out(r: pricing.Rates) -> dict:
+    return {"suggested_per_km": r.suggested_per_km, "car_cost_per_km": r.car_cost_per_km, "min_contribution": r.min_contribution}
+
+
+def _pricing_out(db: Session, tenant_id: int, admin: bool) -> dict:
+    history = T.pricing_history(db, tenant_id)
+    out = {**_rates_out(T.current_rates(db, tenant_id)), "defaults": _rates_out(pricing.DEFAULT),
+           "changed_at": history[-1].created_at if history else None}
+    if admin:
+        names = {u.id: u.email for u in db.scalars(select(User).where(User.id.in_({h.changed_by for h in history if h.changed_by})))}
+        out["history"] = [{**_rates_out(T.rates_from(h)), "changed_at": h.created_at, "changed_by": names.get(h.changed_by)}
+                          for h in reversed(history[-10:])]
+    return out
+
+
+@router.get("/tenants/{tenant_id}/pricing", summary="The community's cost-sharing rates (organisers also see the changes)")
+def get_pricing(tenant_id: int, db: Session = Depends(get_db), actor: Actor = Depends(member_actor)):
+    return _pricing_out(db, tenant_id, actor.is_admin)
+
+
+@router.put("/tenants/{tenant_id}/pricing", summary="Organiser: change the cost-sharing rates for rides posted from now on")
+def set_pricing(tenant_id: int, body: PricingIn, db: Session = Depends(get_db), actor: Actor | None = Depends(admin_actor)):
+    if body.suggested_per_km > body.car_cost_per_km:
+        raise HTTPException(422, "The suggested rate can't be more than what the car costs to run per km. "
+                                 "FellaRide is cost-sharing only.")
+    db.add(CommunityPricing(tenant_id=tenant_id, suggested_per_km=round(body.suggested_per_km, 2),
+                            car_cost_per_km=round(body.car_cost_per_km, 2), min_contribution=body.min_contribution,
+                            changed_by=actor.user.id if actor else None))
+    db.commit()
+    return _pricing_out(db, tenant_id, True)
 
 
 @router.get("/tenants/{tenant_id}/trips-overview", summary="Organiser: rides, ratings and reports in the member app")

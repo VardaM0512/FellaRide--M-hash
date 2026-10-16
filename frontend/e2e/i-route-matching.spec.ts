@@ -10,6 +10,9 @@ import { V1, auth, open, postTrip, signup, appErrors } from './helpers';
 // ~23.7 km apart (77.40, 77.65, 77.90): roughly what thinning leaves on a long, straight expressway.
 const LAT = 31.5;
 const SPARSE: [number, number][] = [[LAT, 77.4], [LAT, 77.65], [LAT, 77.9]];
+// the helper's default route_km describes its own short test route; this highway is ~47.5 km end to end,
+// and a ride whose declared length is under the straight line between its ends is refused (engine/trips.py)
+const SPARSE_LEN = { route_km: 47.6, route_min: 50 };
 const PICKUP = { name: 'Bangalore–Nelamangala Expressway, Dodda Bidarakallu', lat: LAT, lon: 77.52 };   // 11.9 km from a stored point
 const DROP_TYPED = 'Vaddarahalli Machohalli';   // the stub puts it at lon 77.70: on the road, 4.7 km from a stored point
 
@@ -17,7 +20,7 @@ test.describe('I. Route matching (bug #41)', () => {
   test('I41a API: a ride is found when pickup and drop are on the road between stored points', async ({ request }) => {
     const d = await signup(request, 'Sparse Driver', 'male');
     const r = await signup(request, 'Sparse Rider');
-    const { trip } = await postTrip(request, d, { route: SPARSE, minutes: 60, seats: 3 });
+    const { trip } = await postTrip(request, d, { route: SPARSE, minutes: 60, seats: 3, extra: SPARSE_LEN });
     const q = (p: Record<string, number | string>) => request.get(`${V1}/trips/search`, { headers: auth(r), params: p });
     const ids = (rows: { id: number }[]) => rows.map((x) => x.id);
 
@@ -43,7 +46,7 @@ test.describe('I. Route matching (bug #41)', () => {
     const d = await signup(request, 'Highway Harish', 'male');
     const r = await signup(request, 'Highway Rider');
     const departs = Date.now() + 60 * 60_000;
-    const { trip } = await postTrip(request, d, { route: SPARSE, minutes: 60, seats: 3 });
+    const { trip } = await postTrip(request, d, { route: SPARSE, minutes: 60, seats: 3, extra: SPARSE_LEN });
     const w = await open(browser, r, { pickup: PICKUP });
     // map tiles and web fonts are only pictures; refuse them here so the run doesn't depend on internet access
     // (helpers.appErrors already ignores the resulting net::ERR_FAILED; API failures are still tracked in w.failed)

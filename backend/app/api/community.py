@@ -9,7 +9,7 @@ from ..engine import daycycle, lifecycle, scorer
 from ..engine.context import FEATURES, build_context
 from ..engine.matching import recommend_partners
 from ..models import Destination, Member, MemberState, Tenant, User
-from ..schemas import DemoCreate, MemberImportBatch, TenantCreate
+from ..schemas import CommunityUpdate, DemoCreate, MemberImportBatch, TenantCreate
 from ..sim.synthetic import create_synthetic_tenant
 from .account import new_join_code, session_out
 from .deps import get_tenant, member_in, member_out, tenant_out
@@ -59,6 +59,14 @@ def list_tenants(db: Session = Depends(get_db)):
 
 @router.get("/tenants/{tenant_id}", summary="Get a community")
 def get_one(tenant: Tenant = Depends(get_tenant)):
+    return tenant_out(tenant)
+
+
+@router.put("/tenants/{tenant_id}", summary="Organiser: rename the community")
+def update_one(body: CommunityUpdate, tenant: Tenant = Depends(get_tenant), db: Session = Depends(get_db),
+               _: Actor | None = Depends(admin_actor)):
+    tenant.name = body.name
+    db.commit()
     return tenant_out(tenant)
 
 

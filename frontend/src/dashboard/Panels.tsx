@@ -1,50 +1,12 @@
 import { useState } from 'react';
 import {
   useCloseDay, useClusters, useFunnel, useInterventions, useMatchRides, useMember, useMemberMap, useMemberProfiles,
-  useMetrics, useModel, usePlanNudges, useSimulate, useTimeseries,
+  useModel, usePlanNudges, useRecommendations, useSimulate,
 } from '../api/hooks';
-import type { DailySnapshot, FeatureName, Kpis, Role } from '../api/types';
-import { ErrorNote, Glyph, Sheet, Skeleton, Sparkline } from '../components/ui';
+import type { Community, FeatureName, MemberProfile, Role } from '../api/types';
+import { Avatar, ErrorNote, Glyph, Sheet, Skeleton } from '../components/ui';
 import { useAnnounce } from '../lib/announce';
 import { FEATURE_LABEL, FUNNEL_LABEL, ROLE_LABEL, STATE_LABEL, pct } from '../lib/format';
-
-// ---------- numbers as sentences ----------
-type Stat = { key: keyof Kpis; sentence: (k: Kpis) => string; fmt: (v: number) => string };
-const STATS: Stat[] = [
-  { key: 'active_users', sentence: (k) => `${k.active_users} people rode this week`, fmt: String },
-  { key: 'match_rate', sentence: (k) => `${pct(k.match_rate)} of seat requests found a match`, fmt: pct },
-  { key: 'rides_completed', sentence: (k) => `${k.rides_completed} shared rides completed so far`, fmt: String },
-  { key: 'repeat_rate', sentence: (k) => `${pct(k.repeat_rate)} of riders came back for another ride`, fmt: pct },
-  { key: 'avg_network_connectivity', sentence: (k) => `Each active rider has shared rides with ${k.avg_network_connectivity.toFixed(1)} people`, fmt: (v) => v.toFixed(1) },
-  { key: 'nudge_response_rate_7d', sentence: (k) => `${pct(k.nudge_response_rate_7d)} of suggestions got a yes this week`, fmt: pct },
-  { key: 'referral_conversion', sentence: (k) => `${pct(k.referral_conversion)} of invites turned into members`, fmt: pct },
-  { key: 'registered', sentence: (k) => `${k.registered} of ${k.members_total} people have joined`, fmt: String },
-];
-
-export function Numbers() {
-  const metrics = useMetrics();
-  const ts = useTimeseries();
-  if (!metrics.data) return <section className="panel">{metrics.error ? <ErrorNote error={metrics.error} onRetry={() => metrics.refetch()} /> : <Skeleton h={260} />}</section>;
-  const series = (key: keyof Kpis) => (ts.data || []).map((r: DailySnapshot) => Number(r[key]));
-  return (
-    <section className="panel" aria-labelledby="numbers-h">
-      <h2 id="numbers-h">This week</h2>
-      <div>
-        {STATS.map((s) => {
-          const values = series(s.key);
-          const first = values[0], last = values[values.length - 1];
-          const label = values.length > 1 ? `Went from ${s.fmt(first)} on day 0 to ${s.fmt(last)} on day ${values.length - 1}` : 'Not enough days yet';
-          return (
-            <div className="stat" key={s.key}>
-              <p>{s.sentence(metrics.data)}</p>
-              <Sparkline values={values} label={label} />
-            </div>
-          );
-        })}
-      </div>
-    </section>
-  );
-}
 
 // ---------- funnel ----------
 export function FunnelPanel() {
@@ -180,8 +142,20 @@ export function ModelPanel() {
   );
 }
 
-// ---------- operator panel (demo controls) ----------
-export function OperatorPanel() {
+// ---------- the community's clock ----------
+type Clock = Community['clock'];
+
+/** Says how the day moves, so a simulated timeline that only moves on Next day / Simulate doesn't look frozen. */
+export function ClockTag({ clock }: { clock: Clock }) {
+  if (!clock) return null;
+  return clock === 'manual'
+    ? <span className="chip" title="This community's day moves only when you click Next day or Simulate, not with the calendar.">Simulated timeline · moves on Next day / Simulate</span>
+    : <span className="chip" title="One community day per calendar day (India time).">Follows the calendar</span>;
+}
+
+// ---------- day controls (plan, match, next day, simulate) ----------
+/** The engine's daily loop as buttons. `onDark` styles them for the overview's dark band. */
+export function DayControls({ onDark = false, compact = false }: { onDark?: boolean; compact?: boolean }) {
   const plan = usePlanNudges();
   const match = useMatchRides();
   const close = useCloseDay();
@@ -194,51 +168,99 @@ export function OperatorPanel() {
   const busy = plan.isPending || match.isPending || close.isPending || simulate.isPending;
   const error = plan.error || match.error || close.error || simulate.error;
   return (
-    <section className="panel" aria-labelledby="op-h">
-      <h2 id="op-h">Run the demo</h2>
+    <div className={`day-controls${onDark ? ' on-dark' : ''}${compact ? ' compact' : ''}`}>
       <div className="btn-row">
-        <button className="btn btn-primary" disabled={busy} onClick={() => run(async () => { const r = await plan.mutateAsync(14); return `Planned ${r.count} nudges for day ${r.day}.`; })}>Plan today’s nudges</button>
-        <button className="btn btn-ride" disabled={busy} onClick={() => run(async () => { const r = await match.mutateAsync(); return r.matched ? `Matched ${r.matched} rider${r.matched === 1 ? '' : 's'} to drivers.` : 'Nothing new to match. Riders are matched automatically as soon as seats are offered.'; })}>Match rides</button>
-        <>
-          <button className="btn btn-quiet" disabled={busy} onClick={() => run(async () => { const k = await close.mutateAsync(); return `Closed day ${k.closed_day}. Now day ${k.current_day}; unmatched requests expired.`; })}>Next day</button>
-          <button className="btn btn-quiet" disabled={busy} onClick={() => run(async () => { await simulate.mutateAsync(7); return 'Simulated 7 more days through the real engine.'; })}>{simulate.isPending ? 'Simulating…' : 'Simulate 7 days'}</button>
-        </>
+        <button className="btn btn-primary" disabled={busy} onClick={() => run(async () => { const r = await plan.mutateAsync(14); return `Planned ${r.count} nudges for day ${r.day}.`; })}>{plan.isPending ? 'Planning…' : 'Plan today’s nudges'}</button>
+        <button className="btn btn-quiet" disabled={busy} onClick={() => run(async () => { const r = await match.mutateAsync(); return r.matched ? `Matched ${r.matched} rider${r.matched === 1 ? '' : 's'} to drivers.` : 'Nothing new to match. Riders are matched automatically as soon as seats are offered.'; })}>{match.isPending ? 'Matching…' : 'Match rides'}</button>
+        <button className="btn btn-quiet" disabled={busy} onClick={() => run(async () => { const k = await close.mutateAsync(); return `Closed day ${k.closed_day}. Now day ${k.current_day}; unmatched requests expired.`; })}>{close.isPending ? 'Closing…' : 'Next day'}</button>
+        <button className="btn btn-quiet" disabled={busy} onClick={() => run(async () => { await simulate.mutateAsync(7); return 'Simulated 7 more days through the real engine.'; })}>{simulate.isPending ? 'Simulating…' : 'Simulate 7 days'}</button>
       </div>
-      {note && <div className="note note-ok">{note}</div>}
+      {note && <p className="note note-ok" role="status">{note}</p>}
       <ErrorNote error={error} />
+    </div>
+  );
+}
+
+export function OperatorPanel({ clock }: { clock?: Clock }) {
+  return (
+    <section className="panel" aria-labelledby="op-h">
+      <div className="section-head"><h2 id="op-h">Run the day</h2>{clock && <ClockTag clock={clock} />}</div>
+      {clock === 'manual' && <p className="small muted">This timeline is simulated: nothing moves on its own. Next day closes the current day; Simulate replays more days through the engine.</p>}
+      {clock === 'calendar' && <p className="small muted">The day moves with the calendar on its own. Next day closes today early and moves ahead of the calendar, which then waits until the date catches up.</p>}
+      <ol className="loop-steps">
+        <li><strong>Plan</strong><span>The engine picks who to nudge today and why.</span></li>
+        <li><strong>Match</strong><span>Riders asking for seats are paired with drivers on their route.</span></li>
+        <li><strong>Next day</strong><span>Unmatched requests expire; the day’s numbers are saved.</span></li>
+      </ol>
+      <DayControls />
     </section>
   );
 }
 
 // ---------- member profile side sheet ----------
+const JOURNEY: { key: keyof MemberProfile['funnel']; label: string }[] = [
+  { key: 'registered_day', label: 'Joined' },
+  { key: 'interacted_day', label: 'Got started' },
+  { key: 'first_ride_day', label: 'First shared ride' },
+  { key: 'repeat_day', label: 'Rides regularly' },
+  { key: 'referrer_day', label: 'Brought someone in' },
+];
+
 export function MemberSheet({ id, onClose }: { id: number; onClose: () => void }) {
   const m = useMember(id);
+  const recs = useRecommendations(m.data && m.data.state !== 'discovered' ? id : null);
+  const d = m.data;
   return (
-    <Sheet title={m.data?.name || 'Member'} onClose={onClose} side>
-      {!m.data ? (m.error ? <ErrorNote error={m.error} /> : <Skeleton h={240} />) : (
+    <Sheet title={d?.name || 'Member'} onClose={onClose} side>
+      {!d ? (m.error ? <ErrorNote error={m.error} /> : <Skeleton h={240} />) : (
         <>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Glyph driver={m.data.has_car} connector={m.data.is_connector} />
-            <span>{m.data.has_car ? `Drives, ${m.data.seats} seats` : 'Rides'}{m.data.is_connector ? ', well connected' : ''}</span>
+          <div className="ms-head">
+            <Avatar name={d.name} driver={d.has_car} />
+            <div>
+              <span className={`stage-pill st-${d.state}`}>{STATE_LABEL[d.state]}</span>
+              <p className="small muted" style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 4 }}>
+                <Glyph driver={d.has_car} connector={d.is_connector} size={11} />
+                {d.has_car ? `Drives, ${d.seats} seats` : 'Rides'}{d.is_connector ? ' · well connected' : ''}{d.rating?.average ? ` · ★ ${d.rating.average.toFixed(1)}` : ''}
+              </p>
+            </div>
           </div>
+          <ol className="journey" aria-label="Their journey">
+            {JOURNEY.map((j) => {
+              const day = d.funnel[j.key];
+              return <li key={j.key} className={day !== null ? 'done' : ''}><i aria-hidden="true" /><span>{j.label}</span><span className="num small">{day !== null ? `Day ${day}` : 'Not yet'}</span></li>;
+            })}
+          </ol>
           <dl className="facts">
-            <dt>Stage</dt><dd>{STATE_LABEL[m.data.state]}</dd>
-            <dt>Commute</dt><dd>{m.data.area} to {m.data.destination}, <span className="num">{m.data.depart_time}</span></dd>
-            <dt>Route</dt><dd>{m.data.corridor.hot ? 'Busy route' : 'Quiet route'}, {m.data.corridor.registered} of {m.data.corridor.size} joined</dd>
-            <dt>Shared rides</dt><dd>{m.data.rides_count} with {m.data.ride_partners} people</dd>
-            <dt>Knows</dt><dd>{m.data.social_ties} people here</dd>
-            <dt>Suggestions</dt><dd>{m.data.nudges_responded} yes of {m.data.nudges_received}</dd>
+            <dt>Commute</dt><dd>{d.area} to {d.destination}, <span className="num">{d.depart_time}</span></dd>
+            <dt>Route</dt><dd>{d.corridor.hot ? 'Busy route' : 'Quiet route'}, {d.corridor.registered} of {d.corridor.size} joined</dd>
+            <dt>Shared rides</dt><dd>{d.rides_count} with {d.ride_partners} {d.ride_partners === 1 ? 'person' : 'people'}</dd>
+            <dt>Knows</dt><dd>{d.social_ties} people here</dd>
+            <dt>Suggestions</dt><dd>{d.nudges_responded} yes of {d.nudges_received}</dd>
           </dl>
-          <h3 style={{ fontSize: 16 }}>Likelihood</h3>
+          <h3 style={{ fontSize: 16 }}>How likely they are to…</h3>
           <div className="weights">
             {(['driver', 'rider', 'referrer', 'connector'] as Role[]).map((r) => (
               <div className="weight" key={r} style={{ gridTemplateColumns: '130px 1fr 44px' }}>
                 <span>{ROLE_LABEL[r]}</span>
-                <div className="funnel-bar" aria-hidden="true"><span style={{ width: `${m.data!.scores[r] * 100}%` }} /></div>
-                <span className="num small" style={{ textAlign: 'right' }}>{pct(m.data!.scores[r])}</span>
+                <div className="funnel-bar" aria-hidden="true"><span style={{ width: `${d.scores[r] * 100}%` }} /></div>
+                <span className="num small" style={{ textAlign: 'right' }}>{pct(d.scores[r])}</span>
               </div>
             ))}
           </div>
+          {recs.data && recs.data.partners.length > 0 && (
+            <>
+              <h3 style={{ fontSize: 16 }}>Best {recs.data.looking_for === 'drivers' ? 'drivers' : 'riders'} for them</h3>
+              <ul className="partners">
+                {recs.data.partners.slice(0, 3).map((p) => (
+                  <li key={p.member.id}>
+                    <Avatar name={p.member.name} driver={p.member.has_car} />
+                    <span><strong>{p.member.name}</strong><span className="small muted">{p.member.area} · {Math.round(p.match.route_overlap * 100)}% same route · {p.match.time_gap_min} min apart</span></span>
+                    <span className="num match-score">{Math.round(p.match.score * 100)}</span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
         </>
       )}
     </Sheet>

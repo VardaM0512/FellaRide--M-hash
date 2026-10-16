@@ -9,6 +9,7 @@ import { registerServiceWorker } from './lib/notify';
 import { PrefsProvider, usePrefs } from './lib/prefs';
 import { SessionProvider } from './lib/session';
 import './styles/app.css';
+import './styles/org.css';
 
 const queryClient = new QueryClient({
   defaultOptions: {

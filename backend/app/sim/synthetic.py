@@ -7,6 +7,7 @@ No real people: names are generic first names with an initial, emails are @examp
 import math
 import random
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..engine import daycycle
@@ -15,10 +16,21 @@ from ..models import Connection, Destination, Member, MemberState, SyntheticTrai
 
 CENTER = (12.9716, 77.5946)   # synthetic city centre (coordinates only, no real community data)
 
-# The demo community is named after the institution the app is demonstrated at, and shown under that name alone.
-# Everything in it is still generated: `is_synthetic` marks it in every API response, the demo sign-in screen says
-# so in words, and the README discloses it (hackathon rule 3).
+# The demo communities are named after the institution the app is demonstrated at, and shown under those names
+# alone. Everything in them is still generated: `is_synthetic` marks them in every API response, the demo sign-in
+# screen says so in words, and the README discloses it (hackathon rule 3).
 DEMO_NAME = "MIT Manipal"
+NEIGHBOUR_NAME = "Manipal Tech Park"
+# Every name these two have been seeded under, so an existing database renames itself on startup instead of
+# needing hand-written SQL.
+LEGACY_NAMES = {
+    "Synthetic University (demo)": DEMO_NAME,
+    "Banyan Grove University (demo)": DEMO_NAME,
+    "MIT Manipal (demo)": DEMO_NAME,
+    "Synthetic Tech Park (demo)": NEIGHBOUR_NAME,
+    "Silverline Tech Park (demo)": NEIGHBOUR_NAME,
+    "Manipal Tech Park (demo)": NEIGHBOUR_NAME,
+}
 
 # Positions in km from the main campus (east, north), matching the simulator layout.
 DESTINATIONS = [("Main Campus", 0.0, 0.0), ("Medical Block", 4.2, -2.8), ("Tech Park", 4.3, 3.5)]
@@ -130,7 +142,13 @@ def create_synthetic_tenant(db: Session, name: str = DEMO_NAME, seed_active: int
     return tenant
 
 
-NEIGHBOUR_NAME = "Manipal Tech Park"
+def rename_legacy_demos(db: Session) -> int:
+    """A database seeded under an older name: give the demo communities their current ones."""
+    n = 0
+    for t in db.scalars(select(Tenant).where(Tenant.is_synthetic.is_(True), Tenant.name.in_(list(LEGACY_NAMES)))):
+        t.name = LEGACY_NAMES[t.name]
+        n += 1
+    return n
 
 
 def create_neighbour_tenant(db: Session, of: Tenant) -> Tenant:

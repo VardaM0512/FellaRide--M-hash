@@ -1,20 +1,20 @@
 // Cost sharing, mirrored from the server's pricing.py (the server has the final say): a per-km rate for the
-// distance a rider travels, a Rs 30 minimum, rounded to Rs 5, and a no-profit cap so riders together never pay
-// more than the trip costs to drive.
-export const SUGGESTED_PER_KM = 3;
-export const MIN_CONTRIBUTION = 30;
-export const CAR_COST_PER_KM = 9;   // petrol ~Rs 7/km + ~Rs 2/km wear
+// distance a rider travels, a minimum per seat, rounded to Rs 5, and a no-profit cap so riders together never pay
+// more than the trip costs to drive. The organiser sets the community's rates (GET /tenants/{id}/pricing).
+export interface Rates { suggested_per_km: number; car_cost_per_km: number; min_contribution: number }
 
-export const maxPerKm = (seats: number) => Math.round((CAR_COST_PER_KM / Math.max(1, seats)) * 100) / 100;
-export const defaultPerKm = (seats: number) => Math.min(SUGGESTED_PER_KM, maxPerKm(seats));
+export const DEFAULT_RATES: Rates = { suggested_per_km: 3, car_cost_per_km: 9, min_contribution: 30 };   // car: petrol ~Rs 7/km + ~Rs 2/km wear
 
-export function perSeat(perKm: number, riderKm: number, routeKm: number, seats: number): number {
+export const maxPerKm = (seats: number, r: Rates = DEFAULT_RATES) => Math.round((r.car_cost_per_km / Math.max(1, seats)) * 100) / 100;
+export const defaultPerKm = (seats: number, r: Rates = DEFAULT_RATES) => Math.min(r.suggested_per_km, maxPerKm(seats, r));
+
+export function perSeat(perKm: number, riderKm: number, routeKm: number, seats: number, r: Rates = DEFAULT_RATES): number {
   if (perKm <= 0) return 0;
-  const cap = (CAR_COST_PER_KM * Math.max(routeKm, riderKm)) / Math.max(1, seats);
-  const amount = Math.min(Math.max(perKm * riderKm, MIN_CONTRIBUTION), cap);
-  let r = Math.round(amount / 5) * 5;
-  if (r > cap) r -= 5;
-  return Math.max(0, r);
+  const cap = (r.car_cost_per_km * Math.max(routeKm, riderKm)) / Math.max(1, seats);
+  const amount = Math.min(Math.max(perKm * riderKm, r.min_contribution), cap);
+  let rounded = Math.round(amount / 5) * 5;
+  if (rounded > cap) rounded -= 5;
+  return Math.max(0, rounded);
 }
 
 export const rupees = (n: number) => `₹${n.toLocaleString('en-IN')}`;

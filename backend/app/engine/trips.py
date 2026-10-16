@@ -2,8 +2,9 @@
 code, the driver marks who got in, and the ride ends from either side.
 
 Rules worth knowing:
-- Proximity: a trip is "near you" when your last known location is within NEAR_KM of any point on its route.
-  Searches match riders whose pickup AND drop are both close to the route, in that order.
+- Proximity: a trip is "near you" when your last known location is within NEAR_KM of its route (the road, not
+  just its stored points). Searches match riders whose pickup AND drop are both close to the route, in that order;
+  a route that passes an area twice is matched on whichever pass keeps that order (see geo.match_on_route).
 - Ending: the driver can end the whole trip at any time. A rider ends only their own part; if they were the
   last rider still on board (or still to be picked up), the whole trip ends with them.
 - Leaving early: if the driver set off more than EARLY_GRACE_MIN before the planned time and an approved rider
@@ -23,12 +24,13 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session
 
-from ..models import (Alert, Car, DriverLicence, PayoutInfo, Profile, Rating, Report, SeatPayment, Trip, TripLocation, TripMessage,
+from ..models import (Alert, Car, CommunityPricing, DriverLicence, PayoutInfo, Profile, Rating, Report, SeatPayment, Trip, TripLocation, TripMessage,
                       TripPrice, TripSeat, TripSeatCount, TripSeatDrop, User)
 from . import activation, pricing
-from .geo import haversine_km, project_on_route
+from .geo import ROUTE_NEAR_KM, haversine_km, match_on_route, nearest_on_route
 
-NEAR_KM = 2.5            # "near you" alerts and search radius around the route
+NEAR_KM = ROUTE_NEAR_KM  # "near you" alerts and search radius around the route
+MIN_TRIP_KM = 0.5        # start and destination closer than this are the same place, not a ride
 EARLY_GRACE_MIN = 5
 STALE_AFTER = timedelta(hours=3)   # an open trip this long past its time is expired
 CANCEL_CUTOFF = timedelta(minutes=10)   # after a seat is confirmed, either side may cancel until this long before departure
@@ -321,13 +323,36 @@ def _seats_left(db: Session, trip: Trip) -> int:
 
 
 # ---------- cost sharing (see pricing.py) ----------
+def pricing_history(db: Session, tenant_id: int) -> list[CommunityPricing]:
+    """The organiser's rate changes, oldest first."""
+    return _cached(db, ("pricing", tenant_id), lambda: list(db.scalars(
+        select(CommunityPricing).where(CommunityPricing.tenant_id == tenant_id).order_by(CommunityPricing.id))))
+
+
+def rates_from(row: CommunityPricing | None) -> pricing.Rates:
+    if not row:
+        return pricing.DEFAULT
+    return pricing.Rates(row.suggested_per_km, row.car_cost_per_km, row.min_contribution)
+
+
+def current_rates(db: Session, tenant_id: int) -> pricing.Rates:
+    history = pricing_history(db, tenant_id)
+    return rates_from(history[-1] if history else None)
+
+
+def rates_of(db: Session, trip: Trip) -> pricing.Rates:
+    """The community's rates when this ride was posted: changing them later doesn't reprice it."""
+    posted = utc(trip.created_at) or now()
+    return rates_from(next((r for r in reversed(pricing_history(db, trip.tenant_id)) if utc(r.created_at) <= posted), None))
+
+
 def per_km_of(db: Session, trip: Trip) -> float:
     row = _cached(db, ("price", trip.id), lambda: db.get(TripPrice, trip.id))
-    return row.per_km if row else pricing.default_per_km(trip.seats_total)
+    return row.per_km if row else pricing.default_per_km(trip.seats_total, rates_of(db, trip))
 
 
 def contribution(db: Session, trip: Trip, rider_km: float, count: int = 1) -> int:
-    return count * pricing.per_seat(per_km_of(db, trip), rider_km, trip.route_km, trip.seats_total)
+    return count * pricing.per_seat(per_km_of(db, trip), rider_km, trip.route_km, trip.seats_total, rates_of(db, trip))
 
 
 def drop_of(db: Session, s: TripSeat) -> TripSeatDrop | None:
@@ -367,10 +392,10 @@ def save_upi(db: Session, user_id: int, upi_id: str) -> None:
 
 
 def price_out(db: Session, trip: Trip) -> dict:
-    r = per_km_of(db, trip)
-    return {"per_km": r, "free": r <= 0, "suggested_per_km": pricing.default_per_km(trip.seats_total),
-            "max_per_km": pricing.max_per_km(trip.seats_total), "trip_cost": pricing.trip_cost(trip.route_km),
-            "full_route_per_seat": contribution(db, trip, trip.route_km)}
+    r, rates = per_km_of(db, trip), rates_of(db, trip)
+    return {"per_km": r, "free": r <= 0, "suggested_per_km": pricing.default_per_km(trip.seats_total, rates),
+            "max_per_km": pricing.max_per_km(trip.seats_total, rates), "trip_cost": pricing.trip_cost(trip.route_km, rates),
+            "min_contribution": rates.min_contribution, "full_route_per_seat": contribution(db, trip, trip.route_km)}
 
 
 def in_group(db: Session, trip: Trip, user_id: int) -> bool:
@@ -461,14 +486,6 @@ def history_for(db: Session, user_id: int, limit: int = 20) -> list[Trip]:
         Trip.status.in_(("completed", "cancelled", "expired"))).order_by(Trip.depart_at.desc()).limit(limit)))
 
 
-# ---------- geometry ----------
-def nearest_on_route(route: list, lat: float, lon: float) -> tuple[float, float]:
-    """Distance in km from a point to the road (not just its stored points), and where along the route that is
-    (segment index + fraction, for comparing pickup / drop order). See geo.project_on_route."""
-    km, pos, _ = project_on_route(route, lat, lon)
-    return km, pos
-
-
 def search(db: Session, tenant_id: int, user_id: int, from_lat: float, from_lon: float,
            to_lat: float | None, to_lon: float | None, when: datetime | None) -> list[dict]:
     expire_stale(db)
@@ -487,19 +504,14 @@ def search(db: Session, tenant_id: int, user_id: int, from_lat: float, from_lon:
 def _search_rows(db: Session, stmt, user_id: int, from_lat: float, from_lon: float, to_lat: float | None, to_lon: float | None) -> list[dict]:
     out = []
     for t in db.scalars(stmt.order_by(Trip.depart_at).limit(300)):
-        pickup_km, pi = nearest_on_route(t.route, from_lat, from_lon)
-        if pickup_km > NEAR_KM:
+        m = match_on_route(t.route, from_lat, from_lon, to_lat, to_lon, NEAR_KM)
+        if not m:
             continue
-        drop_km = None
-        if to_lat is not None and to_lon is not None:
-            drop_km, di = nearest_on_route(t.route, to_lat, to_lon)
-            if drop_km > NEAR_KM or di < pi:
-                continue
         if seats_left(db, t) == 0 and not seat_of(db, t, user_id):
             continue
         rider_km = pricing.along_route_km(t.route, from_lat, from_lon, to_lat, to_lon)
-        out.append(trip_out(db, t, user_id, {"pickup_km": round(pickup_km, 2),
-                                              "drop_km": round(drop_km, 2) if drop_km is not None else None,
+        out.append(trip_out(db, t, user_id, {"pickup_km": round(m.pickup_km, 2),
+                                              "drop_km": round(m.drop_km, 2) if m.drop_km is not None else None,
                                               "per_seat": contribution(db, t, rider_km), "rider_km": round(rider_km, 1)}))
     return out
 
@@ -514,13 +526,19 @@ def post_trip(db: Session, user: User, body) -> tuple[Trip, int]:
         raise TripError(422, "Tick the box to confirm you have a valid driving licence.")
     if not body.cost_share_confirmed:
         raise TripError(422, "Tick the box to confirm you're sharing costs, not running a taxi.")
-    cap = pricing.max_per_km(body.seats)
+    rates = current_rates(db, user.tenant_id)
+    cap = pricing.max_per_km(body.seats, rates)
     if body.price_per_km is not None and body.price_per_km > cap + 1e-9:
         raise TripError(422, f"That's more than the trip costs. FellaRide is cost-sharing only: with {body.seats} "
                              f"seat{'s' if body.seats != 1 else ''}, at most Rs {cap:g} per km.")
     depart = utc(body.depart_at)
     if depart < now() - timedelta(minutes=10) or depart > now() + timedelta(days=7):
         raise TripError(422, "Pick a leaving time between now and the next 7 days.")
+    straight_km = haversine_km(body.from_lat, body.from_lon, body.to_lat, body.to_lon)
+    if straight_km < MIN_TRIP_KM:
+        raise TripError(422, "Your start and destination are the same place. Pick where you're going.")
+    if body.route_km < straight_km * 0.95:   # no road is shorter than the straight line (5% for rounding)
+        raise TripError(422, "That route is shorter than the distance between your start and destination. Pick the route again.")
     route = [[round(a, 5), round(b, 5)] for a, b in body.route] or [[body.from_lat, body.from_lon], [body.to_lat, body.to_lon]]
     t = Trip(tenant_id=user.tenant_id, driver_id=user.id, from_name=body.from_name.strip(), from_lat=body.from_lat,
              from_lon=body.from_lon, to_name=body.to_name.strip(), to_lat=body.to_lat, to_lon=body.to_lon,
@@ -532,7 +550,7 @@ def post_trip(db: Session, user: User, body) -> tuple[Trip, int]:
     if body.upi_id:
         save_upi(db, user.id, body.upi_id)
     db.flush()
-    if body.price_per_km is not None and abs(body.price_per_km - pricing.default_per_km(body.seats)) > 1e-9:
+    if body.price_per_km is not None and abs(body.price_per_km - pricing.default_per_km(body.seats, rates_of(db, t))) > 1e-9:
         db.add(TripPrice(trip_id=t.id, per_km=round(body.price_per_km, 2)))
     lic = db.get(DriverLicence, user.id) or DriverLicence(user_id=user.id)
     lic.confirmed_at = now()
@@ -674,6 +692,7 @@ def request_seat(db: Session, trip: Trip, user: User, pickup_name: str, pickup_l
     p = profile(db, user.id)
     has_drop = drop_lat is not None and drop_lon is not None
     if has_drop and pickup_lat is not None and pickup_lon is not None and \
+            not match_on_route(trip.route, pickup_lat, pickup_lon, drop_lat, drop_lon, NEAR_KM) and \
             nearest_on_route(trip.route, drop_lat, drop_lon)[1] < nearest_on_route(trip.route, pickup_lat, pickup_lon)[1]:
         raise TripError(422, "Your drop comes before your pickup on this ride's route.")
     if trip.driver_id == user.id:

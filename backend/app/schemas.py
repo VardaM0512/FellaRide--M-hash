@@ -1,8 +1,8 @@
 """Request bodies. Every field is bounded so bad input is rejected with a clear 422."""
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, StringConstraints, model_validator
 
 Lat = Field(ge=-90, le=90)
 Lon = Field(ge=-180, le=180)
@@ -17,13 +17,18 @@ class DestinationIn(BaseModel):
 
 Email = Field(min_length=5, max_length=200, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 Password = Field(min_length=8, max_length=72, description="8 to 72 characters")
-PersonName = Field(min_length=2, max_length=80, pattern=r"^[^<>{}\[\]\\/]+$")
+# Trimmed before the length check, so "   " or " A " can't slip through and be saved as a blank or 1-letter name.
+PersonName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=2, max_length=80, pattern=r"^[^<>{}\[\]\\/]+$")]
 
 
 class AdminIn(BaseModel):
-    name: str = PersonName
+    name: PersonName
     email: str = Email
     password: str = Password
+
+
+class CommunityUpdate(BaseModel):
+    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=2, max_length=120)]
 
 
 class TenantCreate(BaseModel):
@@ -122,7 +127,7 @@ class DemoLoginIn(BaseModel):
 class RegisterIn(BaseModel):
     """Join a community with its join code and set up your commute in one step."""
     join_code: str = Field(min_length=4, max_length=16, pattern=r"^[A-Za-z0-9]+$")
-    name: str = PersonName
+    name: PersonName
     email: str = Email
     password: str = Password
     area: str = Field("", max_length=80, pattern=r"^[^<>{}]*$")
@@ -152,7 +157,7 @@ Place = Field(min_length=1, max_length=160, pattern=r"^[^<>{}]+$")
 
 
 class SignupIn(BaseModel):
-    name: str = PersonName
+    name: PersonName
     gender: Gender
     email: str = Email
     mobile: str = Mobile
@@ -189,7 +194,7 @@ class VerifyEmailIn(BaseModel):
 
 
 class ProfileIn(BaseModel):
-    name: str = PersonName
+    name: PersonName
     gender: Gender
     mobile: str = Mobile
 
@@ -266,13 +271,21 @@ class ReportIn(BaseModel):
 
 
 class InviteIn(BaseModel):
-    name: str = PersonName
+    name: PersonName
     email: str = Email
 
 
 class BroadcastIn(BaseModel):
     title: str = Field(min_length=1, max_length=120)
     body: str = Field("", max_length=400)
+    audience: Literal["all", "drivers", "riders", "new"] = Field(
+        "all", description="everyone; members with a car saved; members without one; or members who haven't shared a ride yet")
+
+
+class PricingIn(BaseModel):
+    suggested_per_km: float = Field(gt=0, le=100, description="Rs per km a rider travels, before the no-profit cap")
+    car_cost_per_km: float = Field(gt=0, le=100, description="What a car costs to run per km (fuel and wear): the no-profit cap")
+    min_contribution: int = Field(ge=0, le=1000, description="Rs per seat, unless that would break the cap on a short trip")
 
 
 # ---------- community board ----------

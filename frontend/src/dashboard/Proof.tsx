@@ -1,5 +1,4 @@
 // Smart engine vs random nudges on two identical synthetic communities (needs the admin key: local demo only).
-import { Link } from 'react-router-dom';
 import { useCompare } from '../api/hooks';
 import type { CompareResult } from '../api/types';
 import { ErrorNote } from '../components/ui';
@@ -38,13 +37,9 @@ export default function Proof() {
   const d = compare.data;
   const lift = d?.lift.active_users;
   return (
-    <div className="dash" style={{ maxWidth: 980 }}>
-      <header className="dash-head">
-        <h1 style={{ fontSize: 'var(--fs-h2)' }}>Does the engine beat random nudges?</h1>
-        <span className="spacer" />
-        <Link to="/dashboard" className="btn btn-quiet" style={{ textDecoration: 'none' }}>Back to dashboard</Link>
-      </header>
+    <div className="stack-lg proof-page">
       <section className="panel">
+        <h2>Does the engine beat random nudges?</h2>
         <p>We grow two identical synthetic communities for 40 days. One gets our engine’s targeted nudges; the other gets the same number of generic nudges sent to random people.</p>
         {(
           <div className="btn-row">

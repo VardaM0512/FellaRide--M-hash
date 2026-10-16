@@ -1,9 +1,18 @@
 import type { ReactNode } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { DemoPicker, ForgotPassword, ResetPassword, SignIn, Signup, StartCommunity, Welcome } from './auth/AuthScreens';
-import Dashboard from './dashboard/Dashboard';
+import Announce from './dashboard/Announce';
+import CommunitySettings from './dashboard/CommunitySettings';
+import EnginePage from './dashboard/EnginePage';
 import Expansion from './dashboard/Expansion';
+import LiveMap from './dashboard/LiveMap';
+import Members from './dashboard/Members';
+import More from './dashboard/More';
+import OrgLayout from './dashboard/OrgLayout';
+import Overview from './dashboard/Overview';
+import PricingPanel from './dashboard/PricingPanel';
 import Proof from './dashboard/Proof';
+import RidesSafety from './dashboard/RidesSafety';
 import { useSession } from './lib/session';
 import AlertsScreen from './member/AlertsScreen';
 import AppLayout from './member/AppLayout';
@@ -69,9 +78,20 @@ export default function App() {
         <Route path="community" element={<Community />} />
         <Route path="settings" element={<Settings />} />
       </Route>
-      <Route path="dashboard" element={<RequireAdmin><Dashboard /></RequireAdmin>} />
-      <Route path="dashboard/proof" element={<RequireAdmin><Proof /></RequireAdmin>} />
-      <Route path="dashboard/expansion" element={<RequireAdmin><Expansion /></RequireAdmin>} />
+      <Route path="dashboard" element={<RequireAdmin><OrgLayout /></RequireAdmin>}>
+        <Route index element={<Overview />} />
+        <Route path="map" element={<LiveMap />} />
+        <Route path="members" element={<Members />} />
+        <Route path="rides" element={<RidesSafety />} />
+        <Route path="announce" element={<Announce />} />
+        <Route path="pricing" element={<PricingPanel />} />
+        <Route path="engine" element={<EnginePage />} />
+        <Route path="expansion" element={<Expansion />} />
+        <Route path="proof" element={<Proof />} />
+        <Route path="settings" element={<CommunitySettings />} />
+        <Route path="more" element={<More />} />
+        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

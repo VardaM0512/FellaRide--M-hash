@@ -6,7 +6,7 @@ import MapView from '../components/MapView';
 import PlaceField from '../components/PlaceField';
 import { nameOf } from '../lib/places';
 import { Avatar, ErrorNote, Icon, Logo, Skeleton } from '../components/ui';
-import { STATE_LABEL } from '../lib/format';
+import { STATE_LABEL, mobileError } from '../lib/format';
 import { GENDER_OPTIONS } from '../lib/tripFormat';
 import { useSession } from '../lib/session';
 import { usePrefs } from '../lib/prefs';
@@ -309,7 +309,9 @@ export function Signup() {
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const [inviter, setInviter] = useState<ReferralLookup | null>(null);
-  const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v }));
+  const [mobileLeft, setMobileLeft] = useState(false);
+  const mobileErr = mobileLeft ? mobileError(f.mobile) : null;
+  const set =<K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v }));
   // a referral code (from a friend's link, or typed): show whose it is, so people know where they'll land
   useEffect(() => {
     const code = f.referral_code.trim();
@@ -322,6 +324,7 @@ export function Signup() {
     e.preventDefault();
     if (!f.gender) return setError(new Error('Choose how you’d like your gender shown.'));
     if (f.password.length < 8) return setError(new Error('Use at least 8 characters for your password.'));
+    if (mobileError(f.mobile)) return setMobileLeft(true);
     setBusy(true); setError(null);
     try {
       const s = await signup({
@@ -344,8 +347,8 @@ export function Signup() {
         )}
         <Section n={1} title="Your account" hint="Sign in later with your email or mobile number.">
           <label className="field">Email<input type="email" inputMode="email" autoComplete="email" value={f.email} onChange={(e) => set('email', e.target.value)} required placeholder="you@example.com" /></label>
-          <label className="field">Mobile number<input type="tel" inputMode="tel" autoComplete="tel" placeholder="+91 98765 43210" value={f.mobile} onChange={(e) => set('mobile', e.target.value)} required />
-            <span className="hint">Shared only with people whose ride you’re in, so you can call each other.</span></label>
+          <label className="field">Mobile number<input type="tel" inputMode="tel" autoComplete="tel" placeholder="+91 98765 43210" value={f.mobile} onChange={(e) => set('mobile', e.target.value)} onBlur={() => setMobileLeft(true)} required aria-invalid={!!mobileErr} />
+            {mobileErr ? <span className="field-error" role="alert">{mobileErr}</span> : <span className="hint">Shared only with people whose ride you’re in, so you can call each other.</span>}</label>
           <PasswordField label="Password" value={f.password} onChange={(v) => set('password', v)} autoComplete="new-password" hint="At least 8 characters." />
         </Section>
         <Section n={2} title="About you" hint="Drivers and riders see this, with your rating, before they accept you.">
